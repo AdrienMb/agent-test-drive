@@ -6,6 +6,7 @@
     "watchPatterns": ["apps/**", "packages/**", "docker/server.Dockerfile", "package.json", "yarn.lock", "railway.json"]
   },
   "deploy": {
+    "startCommand": "node --enable-source-maps apps/server/dist/main.js",
     "numReplicas": 1,
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 60,
