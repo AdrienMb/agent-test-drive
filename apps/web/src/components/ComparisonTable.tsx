@@ -1,6 +1,6 @@
 import { Paper, Table, Title } from "@mantine/core";
 import { AGENTS, type AgentId, type ToolKind } from "@atd/shared";
-import type { AgentState } from "../state";
+import { countWorkspaceFiles, type AgentState } from "../state";
 import { formatCost, formatDuration, formatNumber } from "../format";
 import { TOOL_KINDS } from "../toolKinds";
 
@@ -10,7 +10,8 @@ function stats(agent: AgentState) {
   for (const c of calls) byKind.set(c.tool, (byKind.get(c.tool) ?? 0) + 1);
   const files = new Set(calls.flatMap((c) => (c.tool === "file_edit" ? (c.files ?? []) : [])));
   const wall = agent.startedAt !== undefined && agent.endedAt !== undefined ? agent.endedAt - agent.startedAt : undefined;
-  return { calls: calls.length, byKind, files: [...files], wall, usage: agent.usage };
+  const created = agent.files && countWorkspaceFiles(agent.files.files);
+  return { calls: calls.length, byKind, files: [...files], created, wall, usage: agent.usage };
 }
 
 export function ComparisonTable({ agents }: { agents: Record<AgentId, AgentState> }) {
@@ -23,6 +24,7 @@ export function ComparisonTable({ agents }: { agents: Record<AgentId, AgentState
     ["Tool calls", (x) => String(x.calls)],
     ...kinds.map((k): [string, (x: ReturnType<typeof stats>) => string] => [`  ${TOOL_KINDS[k].label}`, (x) => String(x.byKind.get(k) ?? 0)]),
     ["Files edited", (x) => (x.files.length ? `${x.files.length} (${x.files.join(", ")})` : "0")],
+    ["Files in workspace", (x) => (x.created === undefined ? "—" : String(x.created))],
     ["Input tokens", (x) => formatNumber(x.usage?.inputTokens)],
     ["Output tokens", (x) => formatNumber(x.usage?.outputTokens)],
     ["Cost", (x) => formatCost(x.usage?.costUsd)],

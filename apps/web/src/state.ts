@@ -1,7 +1,11 @@
-import type { AgentId, NormalizedEvent, RunEvent, RunStatus } from "@atd/shared";
+import { isSafeWorkspacePath, type AgentId, type NormalizedEvent, type RunEvent, type RunStatus, type WorkspaceFile } from "@atd/shared";
 
 export type ToolCallEvent = Extract<NormalizedEvent, { kind: "tool_call" }>;
 type UsageEvent = Extract<NormalizedEvent, { kind: "usage" }>;
+export type FilesEvent = Extract<NormalizedEvent, { kind: "files" }>;
+
+/** Skipped folders are listed but are not files the agent made. */
+export const countWorkspaceFiles = (files: WorkspaceFile[]) => files.filter((f) => f.skipped !== "dir").length;
 
 export type TimelineItem =
   | { type: "message"; key: string; text: string }
@@ -15,6 +19,7 @@ export interface AgentState {
   endedAt?: number;
   items: TimelineItem[];
   usage?: UsageEvent;
+  files?: Pick<FilesEvent, "files" | "truncated">;
 }
 
 export interface State {
@@ -63,6 +68,11 @@ function applyEvent(agent: AgentState, { event, seq, ts }: RunEvent): AgentState
       return { ...agent, items: [...agent.items, { type: "error", key, message: event.message }] };
     case "usage":
       return { ...agent, usage: event };
+    case "files": {
+      // The server already rejects unsafe paths; this keeps the UI safe if that check ever regresses.
+      const files = event.files.filter((f) => isSafeWorkspacePath(f.path));
+      return { ...agent, files: { files, truncated: event.truncated || files.length !== event.files.length } };
+    }
     case "tool_call": {
       // One card per tool call id: later events update the existing card in place.
       const index = agent.items.findIndex((i) => i.type === "tool_call" && i.key === event.id);

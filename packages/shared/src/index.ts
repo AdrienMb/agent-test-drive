@@ -1,3 +1,7 @@
+import type { WorkspaceFile } from "./files.js";
+
+export * from "./files.js";
+
 export type AgentId = "claude" | "codex";
 
 export const AGENTS: readonly { id: AgentId; label: string }[] = [
@@ -25,6 +29,8 @@ export type NormalizedEvent =
       files?: string[];
     }
   | { kind: "usage"; inputTokens?: number; outputTokens?: number; costUsd?: number; durationMs?: number }
+  /** Sent once, when the agent is done. `truncated` means some files were left out of the list. */
+  | { kind: "files"; files: WorkspaceFile[]; truncated: boolean }
   | { kind: "error"; message: string };
 
 /** One line of JSON written to stdin of the runner container. */

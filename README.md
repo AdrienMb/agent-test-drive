@@ -56,6 +56,7 @@ yarn dev                    # API on :3000, web on http://localhost:5173
 Other scripts:
 
 - `yarn typecheck`: typechecks every workspace.
+- `yarn test`: runs the Vitest suites of every workspace (no Docker or API keys needed).
 - `yarn build:shared`: builds `packages/shared` (`dev` and `typecheck` run it first).
 
 After changing anything in `packages/runner` or `packages/shared`, run
@@ -66,7 +67,7 @@ the runner only runs inside the images.
 
 Send _"Write a Python script that prints the first 20 Fibonacci numbers, then run it"_.
 Both columns stream live; shell commands and file edits get highlighted cards, and a
-comparison table (time, tool calls by kind, files edited, tokens, cost) appears once both
+comparison table (time, tool calls by kind, files edited, files in the workspace, tokens, cost) appears once both
 agents are finished. **Cancel** runs `docker kill` on both containers.
 `docker ps` should show nothing left after a run.
 
@@ -102,6 +103,32 @@ To add a provider, implement `SandboxProvider` in `apps/server/src/sandbox/` (re
 `parseRunnerLine` from `runner-protocol.ts` if the runner's stdout comes back as text
 lines) and register it in `createSandboxProvider` in `sandbox.module.ts`.
 
+## Workspace files
+
+When the agent is done (or has failed), the runner scans `/workspace`
+(`packages/runner/src/files.ts`) and emits one `files` event before the final status. The
+filesystem is the source of truth: files created by shell commands count too, not only
+those from `file_edit` tool calls. Each agent column then shows a **Workspace files** panel.
+
+Everything that comes out of a container is treated as hostile, because the agent can
+write to the runner's stdout directly and bypass the runner:
+
+- **Runner.** The scan never follows symlinks (it opens files with `O_NOFOLLOW` and checks
+  with `fstat`), doesn't block on FIFOs, skips `.git`, `node_modules` and similar folders,
+  sends no content for binary files, files over 64 KB, anything past a 512 KB total,
+  or likely credential files (`.env`, `id_rsa`, `*.pem`, `.npmrc`…), and stops at 200 files.
+  Names with control or bidi characters (e.g. U+202E) are left out.
+- **Secrets.** The runner redacts the values of `*KEY*`/`*TOKEN*`/`*SECRET*`/`*PASSWORD*`
+  env vars from every event. The server redacts every API key it knows from every event
+  it streams and from its logs, which is the layer that can't be bypassed.
+- **Server.** `parseRunnerLine` checks every field of a `files` event (safe relative paths,
+  no duplicates, byte limits, known skip reasons), rebuilds it without unknown fields, and
+  only the first `files` event per agent is kept.
+- **Browser.** File content and names are only ever rendered as React text, never as
+  HTML, SVG or Markdown, and nothing is previewed in an iframe. Downloads are
+  `application/octet-stream` blobs with a sanitized basename and are never opened in a tab.
+  A test fails if any web source uses `dangerouslySetInnerHTML`, `innerHTML`, `srcdoc` or `eval`.
+
 ## Agent settings
 
 - **Claude**: `@anthropic-ai/claude-agent-sdk` `query()` with `cwd: /workspace`,
@@ -121,13 +148,19 @@ anything else → `other`.
 
 - **In-memory only.** Runs live in the server process (finished runs are dropped after
   30 minutes). Restarting the server loses them and kills running containers.
-- **Single turn.** No follow-ups, no file upload, no diffs or downloads; `/workspace`
+- **Single turn.** No follow-ups, no file upload, no diffs; `/workspace`
   starts empty and goes away with the container.
 - **Costs are not equal.** The Claude SDK reports a USD cost; the Codex SDK only reports
   tokens, so its cost shows as "—". Claude input tokens include cache reads and writes,
   so both columns count all input.
 - **Timing.** "Wall time" includes container startup; "Agent time" is what the agent
   reported (Claude) or measured in the runner (Codex).
+- **Workspace files are a final snapshot.** They appear when the agent finishes, not live,
+  and not at all on cancel or timeout (the container is killed). Only small UTF-8 text files
+  can be viewed or downloaded.
+- **Redaction is literal.** It catches a key that was printed or written as is (e.g.
+  `env > dump.txt`), not one the agent deliberately encodes. Files the scan reads are ones the
+  agent could already print in a shell command, so the panel doesn't widen that exposure.
 - **Streaming granularity.** Messages appear once complete (no token-by-token streaming).
   Tool output is capped at 8,000 characters in the runner.
 - **Network.** Containers have normal outbound network access (the agents need their

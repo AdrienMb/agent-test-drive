@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, type OnApplicationShutdown } from "@nestjs/common";
 import { ReplaySubject, type Observable } from "rxjs";
-import { AGENTS, type AgentId, type NormalizedEvent, type RunEvent, type RunnerJob } from "@atd/shared";
+import { AGENTS, redactEvent, redactSecrets, type AgentId, type NormalizedEvent, type RunEvent, type RunnerJob } from "@atd/shared";
 import { SANDBOX_PROVIDER, type SandboxHandle, type SandboxProvider } from "../sandbox/sandbox.types.js";
 
 const TIMEOUT_MS = 10 * 60 * 1000;
 const RETENTION_MS = 30 * 60 * 1000;
 const LIMITS = { memoryMb: 2048, cpus: 2 };
+/** Log lines end up in the error event if the sandbox dies, so each is kept short. */
+const MAX_LOG_LINE = 1_000;
 
 const API_KEY_ENV: Record<AgentId, string> = {
   claude: "ANTHROPIC_API_KEY",
@@ -21,6 +23,8 @@ interface AgentRun {
   finished: boolean;
   /** Last log lines, shown to the user if the sandbox dies unexpectedly. */
   logTail: string[];
+  /** Only the first files event is kept, so a misbehaving runner cannot fill the replay buffer. */
+  filesReported: boolean;
 }
 
 interface Run {
@@ -36,6 +40,8 @@ const isFinal = (e: NormalizedEvent) => e.kind === "status" && e.status !== "run
 export class RunsService implements OnApplicationShutdown {
   private readonly logger = new Logger(RunsService.name);
   private readonly runs = new Map<string, Run>();
+  /** Every API key the server knows, redacted from everything it streams and logs. Kept off Run so it can't be serialized with one. */
+  private readonly secrets = Object.values(API_KEY_ENV).flatMap((name) => process.env[name] ?? []);
 
   constructor(@Inject(SANDBOX_PROVIDER) private readonly sandbox: SandboxProvider) {}
 
@@ -46,8 +52,8 @@ export class RunsService implements OnApplicationShutdown {
       seq: 0,
       events$: new ReplaySubject<RunEvent>(),
       agents: {
-        claude: { name: `cmp-${id}-claude`, finished: false, logTail: [] },
-        codex: { name: `cmp-${id}-codex`, finished: false, logTail: [] },
+        claude: { name: `cmp-${id}-claude`, finished: false, logTail: [], filesReported: false },
+        codex: { name: `cmp-${id}-codex`, finished: false, logTail: [], filesReported: false },
       },
     };
     this.runs.set(id, run);
@@ -100,10 +106,17 @@ export class RunsService implements OnApplicationShutdown {
         onEvent: (event) => {
           // The server already emitted "running" when it started the sandbox.
           if (event.kind === "status" && event.status === "running") return;
+          if (event.kind === "files") {
+            if (a.filesReported) return;
+            a.filesReported = true;
+          }
           if (isFinal(event)) this.finish(run, agent, event);
           else this.emit(run, agent, event);
         },
-        onLog: (line) => {
+        onLog: (raw) => {
+          // Redact before shortening, so a key cut at the limit is never partly kept.
+          const redacted = redactSecrets(raw, this.secrets);
+          const line = redacted.length > MAX_LOG_LINE ? `${redacted.slice(0, MAX_LOG_LINE)}… [${redacted.length - MAX_LOG_LINE} more chars]` : redacted;
           this.logger.debug(`[${a.name}] ${line}`);
           a.logTail = [...a.logTail, line].slice(-5);
         },
@@ -123,7 +136,8 @@ export class RunsService implements OnApplicationShutdown {
 
   private emit(run: Run, agent: AgentId, event: NormalizedEvent): void {
     if (run.agents[agent].finished) return;
-    run.events$.next({ runId: run.id, agent, seq: ++run.seq, ts: Date.now(), event });
+    // The runner redacts too, but the agent can write to the runner's stdout and bypass it.
+    run.events$.next({ runId: run.id, agent, seq: ++run.seq, ts: Date.now(), event: redactEvent(event, this.secrets) });
   }
 
   private fail(run: Run, agent: AgentId, message: string): void {

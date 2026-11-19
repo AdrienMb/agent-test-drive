@@ -1,8 +1,10 @@
 import { spawn, spawnSync } from "node:child_process";
-import { createInterface } from "node:readline";
 import type { AgentId } from "@atd/shared";
-import { parseRunnerLine } from "./runner-protocol.js";
+import { splitLines } from "./line-splitter.js";
+import { MAX_LINE_BYTES, parseRunnerLine } from "./runner-protocol.js";
 import type { SandboxHandle, SandboxListener, SandboxProvider, SandboxSpec } from "./sandbox.types.js";
+
+const MAX_STDERR_LINE_BYTES = 64 * 1024;
 
 /** Each agent has its own image; override with e.g. RUNNER_IMAGE_CLAUDE. */
 function runnerImage(agent: AgentId): string {
@@ -49,13 +51,24 @@ export class DockerSandboxProvider implements SandboxProvider {
     child.stdin.on("error", () => {}); // EPIPE if docker exits before reading the job
     child.stdin.end(`${JSON.stringify(spec.job)}\n`);
 
-    createInterface({ input: child.stdout }).on("line", (line) => {
-      if (!line.trim()) return;
-      const event = parseRunnerLine(line);
-      if (event) listener.onEvent(event);
-      else listener.onLog(`unrecognized stdout: ${line}`);
-    });
-    createInterface({ input: child.stderr }).on("line", (line) => listener.onLog(line));
+    // The agent can write to these pipes too, so no line may grow without bound in server memory.
+    splitLines(
+      child.stdout,
+      MAX_LINE_BYTES,
+      (line) => {
+        if (!line.trim()) return;
+        const event = parseRunnerLine(line);
+        if (event) listener.onEvent(event);
+        else listener.onLog(`unrecognized stdout: ${line}`);
+      },
+      () => listener.onLog(`dropped a stdout line over ${MAX_LINE_BYTES} bytes`),
+    );
+    splitLines(
+      child.stderr,
+      MAX_STDERR_LINE_BYTES,
+      (line) => listener.onLog(line),
+      () => listener.onLog(`dropped a stderr line over ${MAX_STDERR_LINE_BYTES} bytes`),
+    );
 
     child.on("error", (err) => exit(null, err));
     child.on("close", (code) => exit(code));

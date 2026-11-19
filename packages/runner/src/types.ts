@@ -11,9 +11,3 @@ export const WORKSPACE = "/workspace";
 export function rel(path: string): string {
   return path.startsWith(`${WORKSPACE}/`) ? path.slice(WORKSPACE.length + 1) : path;
 }
-
-export function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}… [${text.length - max} more chars]` : text;
-}
-
-export const MAX_OUTPUT = 8_000;

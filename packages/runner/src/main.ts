@@ -1,7 +1,9 @@
 import { createInterface } from "node:readline";
 import { once } from "node:events";
-import type { NormalizedEvent, RunnerJob } from "@atd/shared";
-import type { Adapter } from "./types.js";
+import type { RunnerJob } from "@atd/shared";
+import { WORKSPACE, type Adapter } from "./types.js";
+import { createEmitter, secretsFromEnv } from "./emit.js";
+import { scanWorkspace } from "./files.js";
 
 // Loaded lazily: each agent has its own image, which only ships that agent's SDK.
 const adapters: Record<RunnerJob["agent"], () => Promise<Adapter>> = {
@@ -9,16 +11,9 @@ const adapters: Record<RunnerJob["agent"], () => Promise<Adapter>> = {
   codex: () => import("./adapters/codex.js").then((m) => m.runCodex),
 };
 
+const secrets = secretsFromEnv(process.env);
 // stdout is reserved for the JSONL event stream; everything else goes to stderr.
-let lastError: string | undefined;
-function emit(event: NormalizedEvent): void {
-  // SDKs often report one failure through several channels; show it once.
-  if (event.kind === "error") {
-    if (event.message === lastError) return;
-    lastError = event.message;
-  }
-  process.stdout.write(`${JSON.stringify(event)}\n`);
-}
+const emit = createEmitter(secrets, (line) => process.stdout.write(line));
 
 async function readJob(): Promise<RunnerJob> {
   const rl = createInterface({ input: process.stdin });
@@ -42,6 +37,11 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error("[runner] fatal:", err);
     emit({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+  }
+  try {
+    emit(await scanWorkspace(WORKSPACE));
+  } catch (err) {
+    console.error("[runner] workspace scan failed:", err);
   }
   emit({ kind: "status", status: ok ? "done" : "failed" });
   // Exit explicitly in case an SDK left a handle open; pipe writes are synchronous on Linux, so no output is lost.

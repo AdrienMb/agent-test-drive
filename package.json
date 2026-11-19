@@ -13,10 +13,18 @@
     "docker:build:codex": "docker build -f docker/agent-runner.Dockerfile --build-arg AGENT=codex -t agent-runner-codex:latest .",
     "dev": "yarn build:shared && yarn workspaces foreach -piA -j unlimited --include @atd/server --include @atd/web run dev",
     "typecheck": "yarn build:shared && yarn workspaces foreach -A --exclude agent-test-drive run typecheck",
+    "test": "vitest run",
     "knip": "knip"
   },
   "devDependencies": {
     "knip": "^6.45.1",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.1.1"
+  },
+  "knip": {
+    "ignoreBinaries": [
+      "mkfifo"
+    ]
   }
 }

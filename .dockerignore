@@ -4,3 +4,5 @@
 .git
 .yarn/cache
 .yarn/install-state.gz
+**/*.test.ts
+**/*.test.tsx

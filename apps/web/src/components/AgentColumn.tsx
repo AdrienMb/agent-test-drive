@@ -5,6 +5,7 @@ import type { AgentState, TimelineItem } from "../state";
 import { isFinished } from "../state";
 import { formatDuration } from "../format";
 import { ToolCallCard } from "./ToolCallCard";
+import { FilesPanel } from "./FilesPanel";
 
 const STATUS_COLORS: Record<AgentState["status"], string> = {
   idle: "gray",
@@ -89,6 +90,7 @@ export function AgentColumn({ name, agent }: { name: string; agent: AgentState }
         {agent.items.map((item) => (
           <Item key={item.key} item={item} />
         ))}
+        {agent.files && <FilesPanel {...agent.files} />}
         {agent.status === "running" && agent.items.length === 0 && (
           <Text size="sm" c="dimmed">
             Starting container…

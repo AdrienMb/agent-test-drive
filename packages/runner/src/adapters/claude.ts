@@ -1,6 +1,6 @@
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { NormalizedEvent, ToolKind } from "@atd/shared";
-import { MAX_OUTPUT, WORKSPACE, rel, truncate, type Adapter } from "../types.js";
+import { WORKSPACE, rel, type Adapter } from "../types.js";
 
 type ToolCall = Extract<NormalizedEvent, { kind: "tool_call" }>;
 type Input = Record<string, unknown>;
@@ -11,7 +11,7 @@ function describeTool(name: string, input: Input): Pick<ToolCall, "tool" | "titl
   const filePath = str(input.file_path) || str(input.notebook_path);
   switch (name) {
     case "Bash":
-      return { tool: "shell", title: truncate(str(input.command), 200) };
+      return { tool: "shell", title: str(input.command) };
     case "Write":
     case "Edit":
     case "MultiEdit":
@@ -80,7 +80,7 @@ export const runClaude: Adapter = async (prompt, emit) => {
           emit({
             ...call,
             status: block.is_error ? "failed" : "completed",
-            output: truncate(resultText(block.content), MAX_OUTPUT),
+            output: resultText(block.content),
           });
         }
         break;

@@ -1,6 +1,6 @@
 import { Codex, type ThreadEvent, type ThreadItem } from "@openai/codex-sdk";
 import type { NormalizedEvent } from "@atd/shared";
-import { MAX_OUTPUT, WORKSPACE, rel, truncate, type Adapter } from "../types.js";
+import { WORKSPACE, rel, type Adapter } from "../types.js";
 
 type Phase = "started" | "updated" | "completed";
 
@@ -16,10 +16,10 @@ function mapItem(item: ThreadItem, phase: Phase): NormalizedEvent | null {
         kind: "tool_call",
         id: item.id,
         tool: "shell",
-        title: truncate(item.command, 200),
+        title: item.command,
         status: !done ? "started" : item.status === "failed" || (item.exit_code ?? 0) !== 0 ? "failed" : "completed",
         input: { command: item.command },
-        output: item.aggregated_output ? truncate(item.aggregated_output, MAX_OUTPUT) : undefined,
+        output: item.aggregated_output || undefined,
       };
     case "file_change": {
       const files = item.changes.map((c) => rel(c.path));
@@ -43,7 +43,7 @@ function mapItem(item: ThreadItem, phase: Phase): NormalizedEvent | null {
         title: `${item.server}.${item.tool}`,
         status: !done ? "started" : item.status === "failed" ? "failed" : "completed",
         input: item.arguments,
-        output: item.error?.message ?? (text ? truncate(text, MAX_OUTPUT) : undefined),
+        output: item.error?.message ?? (text || undefined),
       };
     }
     case "todo_list": {
