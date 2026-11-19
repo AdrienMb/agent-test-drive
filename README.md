@@ -82,6 +82,9 @@ agents are finished. **Cancel** runs `docker kill` on both containers.
 | `RUNNER_IMAGE_CLAUDE` | `agent-runner-claude:latest` | Image for the Claude agent |
 | `RUNNER_IMAGE_CODEX`  | `agent-runner-codex:latest`  | Image for the Codex agent  |
 | `SANDBOX_PROVIDER`    | `docker`                     | Where runners execute      |
+| `RAILWAY_TOKEN`       |                              | Railway provider (project token) |
+| `RAILWAY_API_TOKEN`   |                              | Railway provider, instead of `RAILWAY_TOKEN` (needs `RAILWAY_ENVIRONMENT_ID`) |
+| `RAILWAY_SANDBOX_IDLE_TIMEOUT_MINUTES` | `5`         | Railway provider           |
 
 The server loads `.env` from the repo root with `node --env-file-if-exists`.
 
@@ -97,11 +100,58 @@ and event bookkeeping stay in `RunsService`, so every provider behaves the same.
 `SANDBOX_PROVIDER` picks the provider at boot; an unknown value stops the server:
 
 - `docker` (default, local): `DockerSandboxProvider` in `sandbox/docker.provider.ts`.
-- `railway` (production): not implemented yet.
+- `railway` (production): `RailwaySandboxProvider` in `sandbox/railway.provider.ts`, see
+  [Railway sandboxes](#railway-sandboxes).
 
 To add a provider, implement `SandboxProvider` in `apps/server/src/sandbox/` (reuse
 `parseRunnerLine` from `runner-protocol.ts` if the runner's stdout comes back as text
 lines) and register it in `createSandboxProvider` in `sandbox.module.ts`.
+
+### Railway sandboxes
+
+Each agent of each run gets a fresh [Railway sandbox](https://docs.railway.com/sandboxes)
+(an isolated VM), created with the `railway` SDK and destroyed when the agent exits.
+Sandboxes can't boot a Docker image, so `runnerTemplate()` rebuilds
+`agent-runner.Dockerfile` as a sandbox template per agent: node, npm and python3 exposed to
+an `agent` user (the base image keeps them under `/root` with mise; git and ripgrep are already
+there, and apt only runs if something is missing, since its Ubuntu mirrors can be slow enough
+to hit Railway's 5-minute build limit), `/workspace` as a git repo, and the agent's SDKs installed with npm in
+`/opt/atd` at the exact versions in `packages/runner/dist/sandbox-deps.json` (written by
+the runner build from what Yarn installed). Templates are cached by recipe, so they only
+rebuild when an SDK version changes; the server builds both at boot to warm the cache.
+
+For each agent the provider then:
+
+1. creates the sandbox from the template (`2 vCPU / 2 GB`, idle timeout 5 minutes),
+2. uploads the compiled runner, `@atd/shared` (a few small JS files) and the job as
+   `/opt/atd/job.json`,
+3. runs `node /opt/atd/runner/dist/main.js < /opt/atd/job.json` as `agent` in `/workspace`
+   with an ephemeral exec: the API key goes in the exec's env (never the sandbox's), and
+   stdout goes through the same `splitLines` + `parseRunnerLine` as Docker,
+4. heartbeats every minute while it runs, then destroys the sandbox.
+
+Cancel and the 10-minute timeout destroy the sandbox. The idle timeout only matters if
+the server dies mid-run: the sandbox is gone at most 5 minutes later.
+
+## Deploy on Railway
+
+`railway.json` deploys one service built from `docker/server.Dockerfile`: the NestJS API
+also serves the built web app, and `SANDBOX_PROVIDER=railway` is set in the image. The
+image doesn't contain the agent SDKs (~380 MB instead of ~1.15 GB per runner image).
+
+1. Create a project and a service from this repo (`railway init`, then `railway up`, or
+   connect the GitHub repo in the dashboard). Railway picks up `railway.json`.
+2. In the project settings, create a **project token** for the environment, then set the
+   service variables `RAILWAY_TOKEN`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`.
+3. Generate a public domain for the service. The deploy healthcheck is `GET /api/health`.
+
+Sandboxes run in the token's environment and count toward its plan limits (10 at a time
+on Trial and Free, i.e. 5 concurrent runs). `numReplicas` is 1 and `overlapSeconds` is 0
+on purpose: runs live in memory, so a second replica would get SSE requests for runs it
+doesn't know. `drainingSeconds: 30` gives the old deploy time to destroy its sandboxes.
+
+To try the production image locally: `docker build -f docker/server.Dockerfile -t agent-test-drive .`
+then `docker run -p 3000:3000 --env-file .env -e RAILWAY_TOKEN=... agent-test-drive`.
 
 ## Workspace files
 
@@ -147,7 +197,8 @@ anything else → `other`.
 ## Known limitations
 
 - **In-memory only.** Runs live in the server process (finished runs are dropped after
-  30 minutes). Restarting the server loses them and kills running containers.
+  30 minutes). Restarting the server loses them and kills running containers or sandboxes.
+  On Railway, every redeploy does that.
 - **Single turn.** No follow-ups, no file upload, no diffs; `/workspace`
   starts empty and goes away with the container.
 - **Costs are not equal.** The Claude SDK reports a USD cost; the Codex SDK only reports
