@@ -135,15 +135,25 @@ the server dies mid-run: the sandbox is gone at most 5 minutes later.
 
 ## Deploy on Railway
 
-`railway.json` deploys one service built from `docker/server.Dockerfile`: the NestJS API
-also serves the built web app, and `SANDBOX_PROVIDER=railway` is set in the image. The
-image doesn't contain the agent SDKs (~380 MB instead of ~1.15 GB per runner image).
+`.railway/railway.ts` ([Infrastructure as Code](https://docs.railway.com/infrastructure-as-code))
+defines one service built from `docker/server.Dockerfile`: the NestJS API also serves the
+built web app, and `SANDBOX_PROVIDER=railway` is set in the image. The image doesn't contain
+the agent SDKs (~380 MB instead of ~1.15 GB per runner image).
 
-1. Create a project and a service from this repo (`railway init`, then `railway up`, or
-   connect the GitHub repo in the dashboard). Railway picks up `railway.json`.
+Railway doesn't read `.railway/` on deploy: service settings change only when you apply
+them with the Railway CLI (5.42.1 or newer).
+
+1. Create a project, then from the repo root: `railway login`, `railway link`,
+   `railway config plan` (review it), `railway config apply`. This creates the
+   `agent-test-drive` service from the GitHub repo, or updates the service with that name.
+   Don't let Railway's GitHub import split the monorepo into one service per workspace.
 2. In the project settings, create a **project token** for the environment, then set the
-   service variables `RAILWAY_TOKEN`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`.
+   service variables `RAILWAY_TOKEN`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`. The config
+   marks them `preserve()`: it keeps their values on Railway and never holds them.
 3. Generate a public domain for the service. The deploy healthcheck is `GET /api/health`.
+
+After editing `.railway/railway.ts`, run `railway config plan` and `railway config apply`
+again; pushing the file changes nothing on Railway.
 
 Sandboxes run in the token's environment and count toward its plan limits (10 at a time
 on Trial and Free, i.e. 5 concurrent runs). `numReplicas` is 1 and `overlapSeconds` is 0

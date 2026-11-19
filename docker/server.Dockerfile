@@ -1,6 +1,6 @@
 # The deployed app: NestJS API + built web app in one service, running agents in Railway sandboxes.
 #   docker build -f docker/server.Dockerfile -t agent-test-drive .
-# Railway builds it from railway.json. The agent SDKs are not in this image: the server installs
+# Railway builds it as configured in .railway/railway.ts. The agent SDKs are not in this image: the server installs
 # them in a Railway sandbox template from packages/runner/dist/sandbox-deps.json.
 
 FROM node:22-slim AS build
