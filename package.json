@@ -1,0 +1,22 @@
+{
+  "name": "agent-test-drive",
+  "private": true,
+  "packageManager": "yarn@4.18.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:shared": "yarn workspace @atd/shared build",
+    "docker:build": "yarn docker:build:claude && yarn docker:build:codex",
+    "docker:build:claude": "docker build -f docker/agent-runner.Dockerfile --build-arg AGENT=claude -t agent-runner-claude:latest .",
+    "docker:build:codex": "docker build -f docker/agent-runner.Dockerfile --build-arg AGENT=codex -t agent-runner-codex:latest .",
+    "dev": "yarn build:shared && yarn workspaces foreach -piA -j unlimited --include @atd/server --include @atd/web run dev",
+    "typecheck": "yarn build:shared && yarn workspaces foreach -A --exclude agent-test-drive run typecheck",
+    "knip": "knip"
+  },
+  "devDependencies": {
+    "knip": "^6.45.1",
+    "typescript": "^7.0.2"
+  }
+}
