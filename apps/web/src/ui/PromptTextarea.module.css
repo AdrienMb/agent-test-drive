@@ -1,0 +1,12 @@
+.input {
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+/* The accent is near-black, which reads as too heavy a ring around a large box. */
+.input:focus,
+.input:focus-within {
+  border-color: light-dark(#c2c2c2, var(--mantine-color-dark-3));
+  box-shadow: 0 1px 6px light-dark(rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.3));
+}

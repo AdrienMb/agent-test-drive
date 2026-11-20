@@ -1,0 +1,38 @@
+.glyph {
+  display: inline-block;
+  width: 1em;
+  text-align: center;
+  color: var(--mantine-color-text);
+}
+
+/* text-fill-color, not color, because Mantine sets color inline. */
+.shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--mantine-color-dimmed) 0%,
+    var(--mantine-color-dimmed) 40%,
+    var(--mantine-color-text) 50%,
+    var(--mantine-color-dimmed) 60%,
+    var(--mantine-color-dimmed) 100%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+  }
+}

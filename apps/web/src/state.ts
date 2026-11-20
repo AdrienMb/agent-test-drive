@@ -8,33 +8,36 @@ export type FilesEvent = Extract<NormalizedEvent, { kind: "files" }>;
 export const countWorkspaceFiles = (files: WorkspaceFile[]) => files.filter((f) => f.skipped !== "dir").length;
 
 export type TimelineItem =
-  | { type: "prompt"; key: string; text: string }
   | { type: "message"; key: string; text: string }
   | { type: "reasoning"; key: string; text: string }
   | { type: "tool_call"; key: string; call: ToolCallEvent }
   | { type: "error"; key: string; message: string };
 
-export interface AgentState {
-  /** Of the current (or last) turn. */
+/** One agent's answer to one prompt. */
+export interface Turn {
   status: RunStatus | "idle";
   startedAt?: number;
   endedAt?: number;
+  items: TimelineItem[];
+  /** The workspace at the end of this turn. */
+  files?: Pick<FilesEvent, "files" | "truncated">;
+}
+
+export interface AgentState {
+  /** turns[i] answers State.prompts[i]. Never empty; the last one is the current turn. */
+  turns: Turn[];
   /** Summed over finished turns. */
   wallMs: number;
-  /** Counts turns started, to scope tool call ids: Codex restarts them at item_0 every turn. */
-  turn: number;
-  items: TimelineItem[];
   /** Summed over turns. */
   usage?: UsageEvent;
-  /** The latest turn's snapshot. */
-  files?: Pick<FilesEvent, "files" | "truncated">;
   /** Why the session ended; set once the agent takes no more prompts. */
   closed?: string;
 }
 
 export interface State {
   runId?: string;
-  prompt?: string;
+  /** The first prompt, then each follow-up. An agent whose session ended early has fewer turns than this. */
+  prompts: string[];
   /** Highest seq applied; guards against replays when EventSource reconnects. */
   lastSeq: number;
   agents: Record<AgentId, AgentState>;
@@ -46,21 +49,40 @@ export type Action =
   /** The event stream died for good (e.g. the server restarted and forgot the run). */
   | { type: "disconnected"; message: string };
 
+const emptyTurn = (): Turn => ({ status: "idle", items: [] });
+
 const emptyAgents = (): Record<AgentId, AgentState> => ({
-  claude: { status: "idle", wallMs: 0, turn: 0, items: [] },
-  codex: { status: "idle", wallMs: 0, turn: 0, items: [] },
+  claude: { turns: [emptyTurn()], wallMs: 0 },
+  codex: { turns: [emptyTurn()], wallMs: 0 },
 });
 
-export const initialState: State = { lastSeq: 0, agents: emptyAgents() };
+export const initialState: State = { prompts: [], lastSeq: 0, agents: emptyAgents() };
 
-export const isFinished = (s: AgentState["status"]) => s === "done" || s === "failed" || s === "cancelled";
+export const isFinished = (s: Turn["status"]) => s === "done" || s === "failed" || s === "cancelled";
+
+export const currentTurn = (agent: AgentState): Turn => agent.turns[agent.turns.length - 1];
+
+const withCurrentTurn = (agent: AgentState, update: (turn: Turn) => Turn): AgentState => ({
+  ...agent,
+  turns: [...agent.turns.slice(0, -1), update(currentTurn(agent))],
+});
+
+const addItem = (agent: AgentState, item: TimelineItem) => withCurrentTurn(agent, (t) => ({ ...t, items: [...t.items, item] }));
 
 /** Tool calls still running when the agent stops will never complete, so stop their spinners. */
 function settle(agent: AgentState, status: RunStatus, ts: number): AgentState {
-  const items = agent.items.map((i) =>
-    i.type === "tool_call" && i.call.status === "started" ? { ...i, call: { ...i.call, status: "failed" as const } } : i,
-  );
-  return { ...agent, status, endedAt: ts, wallMs: agent.wallMs + ts - (agent.startedAt ?? ts), items };
+  const turn = currentTurn(agent);
+  return {
+    ...withCurrentTurn(agent, (t) => ({
+      ...t,
+      status,
+      endedAt: ts,
+      items: t.items.map((i) =>
+        i.type === "tool_call" && i.call.status === "started" ? { ...i, call: { ...i.call, status: "failed" as const } } : i,
+      ),
+    })),
+    wallMs: agent.wallMs + ts - (turn.startedAt ?? ts),
+  };
 }
 
 const add = (a: number | undefined, b: number | undefined) => (a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0));
@@ -81,36 +103,34 @@ function applyEvent(agent: AgentState, { event, seq, ts }: RunEvent): AgentState
   switch (event.kind) {
     case "status":
       if (event.status !== "running") return settle(agent, event.status, ts);
-      return agent.status === "running" ? agent : { ...agent, status: "running", turn: agent.turn + 1, startedAt: ts, endedAt: undefined };
+      return currentTurn(agent).status === "running" ? agent : withCurrentTurn(agent, (t) => ({ ...t, status: "running", startedAt: ts, endedAt: undefined }));
     case "prompt":
-      return { ...agent, items: [...agent.items, { type: "prompt", key, text: event.text }] };
+      return { ...agent, turns: [...agent.turns, emptyTurn()] };
     case "closed":
       return { ...agent, closed: event.reason };
     case "message":
-      return { ...agent, items: [...agent.items, { type: "message", key, text: event.text }] };
+      return addItem(agent, { type: "message", key, text: event.text });
     case "reasoning":
-      return { ...agent, items: [...agent.items, { type: "reasoning", key, text: event.text }] };
+      return addItem(agent, { type: "reasoning", key, text: event.text });
     case "error":
-      return { ...agent, items: [...agent.items, { type: "error", key, message: event.message }] };
+      return addItem(agent, { type: "error", key, message: event.message });
     case "usage":
       return { ...agent, usage: addUsage(agent.usage, event) };
     case "files": {
       // The server already rejects unsafe paths; this keeps the UI safe if that check ever regresses.
       const files = event.files.filter((f) => isSafeWorkspacePath(f.path));
-      return { ...agent, files: { files, truncated: event.truncated || files.length !== event.files.length } };
+      return withCurrentTurn(agent, (t) => ({ ...t, files: { files, truncated: event.truncated || files.length !== event.files.length } }));
     }
-    case "tool_call": {
-      // One card per tool call id and turn: later events update the existing card in place.
-      const callKey = `${agent.turn}:${event.id}`;
-      const index = agent.items.findIndex((i) => i.type === "tool_call" && i.key === callKey);
-      if (index === -1) {
-        return { ...agent, items: [...agent.items, { type: "tool_call", key: callKey, call: event }] };
-      }
-      const items = agent.items.slice();
-      const previous = items[index] as Extract<TimelineItem, { type: "tool_call" }>;
-      items[index] = { ...previous, call: { ...previous.call, ...event } };
-      return { ...agent, items };
-    }
+    case "tool_call":
+      // One card per tool call id within a turn: later events update the existing card in place.
+      return withCurrentTurn(agent, (t) => {
+        const index = t.items.findIndex((i) => i.type === "tool_call" && i.key === event.id);
+        if (index === -1) return { ...t, items: [...t.items, { type: "tool_call", key: event.id, call: event }] };
+        const items = t.items.slice();
+        const previous = items[index] as Extract<TimelineItem, { type: "tool_call" }>;
+        items[index] = { ...previous, call: { ...previous.call, ...event } };
+        return { ...t, items };
+      });
     default:
       return agent;
   }
@@ -119,26 +139,26 @@ function applyEvent(agent: AgentState, { event, seq, ts }: RunEvent): AgentState
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "start":
-      return { runId: action.runId, prompt: action.prompt, lastSeq: 0, agents: emptyAgents() };
+      return { runId: action.runId, prompts: [action.prompt], lastSeq: 0, agents: emptyAgents() };
     case "event": {
       const { event } = action;
       if (event.runId !== state.runId || event.seq <= state.lastSeq) return state;
-      return {
-        ...state,
-        lastSeq: event.seq,
-        agents: { ...state.agents, [event.agent]: applyEvent(state.agents[event.agent], event) },
-      };
+      const agent = applyEvent(state.agents[event.agent], event);
+      // Both agents get the same follow-up; whichever event arrives first records it.
+      const prompts =
+        event.event.kind === "prompt" && state.prompts.length < agent.turns.length ? [...state.prompts, event.event.text] : state.prompts;
+      return { ...state, lastSeq: event.seq, prompts, agents: { ...state.agents, [event.agent]: agent } };
     }
     case "disconnected": {
       const now = Date.now();
       const agents = { ...state.agents };
       for (const [id, agent] of Object.entries(agents) as [AgentId, AgentState][]) {
         if (agent.closed) continue;
-        if (isFinished(agent.status)) {
+        if (isFinished(currentTurn(agent).status)) {
           agents[id] = { ...agent, closed: action.message };
           continue;
         }
-        const withError = { ...agent, items: [...agent.items, { type: "error" as const, key: "disconnected", message: action.message }] };
+        const withError = addItem(agent, { type: "error", key: "disconnected", message: action.message });
         agents[id] = { ...settle(withError, "failed", now), closed: action.message };
       }
       return { ...state, agents };

@@ -1,12 +1,40 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import { ActionIcon, Alert, AppShell, Button, Container, Group, SimpleGrid, Stack, Textarea, Title, UnstyledButton } from "@mantine/core";
-import { IconArrowUp, IconPlayerStop, IconPlus } from "@tabler/icons-react";
+import { Alert, Button, Container, Group, SimpleGrid, Stack, Text, Title, UnstyledButton } from "@mantine/core";
 import { Link, useLocation, useParams } from "react-router";
 import { AGENTS, type RunEvent } from "@atd/shared";
-import { initialState, isFinished, reducer } from "../state";
+import { currentTurn, initialState, isFinished, reducer, type State } from "../state";
 import { errorMessage } from "../format";
 import { AgentColumn, PromptBubble } from "../components/AgentColumn";
 import { ComparisonTable } from "../components/ComparisonTable";
+import { ThinkingLine } from "../components/ThinkingLine";
+import { PromptTextarea } from "../ui/PromptTextarea";
+
+/** One status line for both agents' answers to prompt `i`. */
+function turnStatus(state: State, i: number): { text: string; active: boolean } {
+  const sent = AGENTS.flatMap((a) => {
+    const turn = state.agents[a.id].turns[i];
+    return turn ? [{ label: a.label, turn }] : [];
+  });
+  const busy = sent.filter((s) => !isFinished(s.turn.status));
+  if (busy.length === 0) return { text: "Agent answers", active: false };
+  if (busy.every((s) => s.turn.items.length === 0)) {
+    return { text: i === 0 ? "Starting the containers" : "Sending the prompt to the agents", active: true };
+  }
+  if (busy.length < sent.length) return { text: `Waiting for ${busy.map((s) => s.label).join(" and ")}`, active: true };
+  return { text: "The agents are working", active: true };
+}
+
+/** One line when both sessions ended for the same reason, otherwise one per ended agent. */
+function sessionEndLines(state: State): string[] {
+  const ended = AGENTS.flatMap((a) => {
+    const reason = state.agents[a.id].closed;
+    return reason === undefined ? [] : [{ label: a.label, reason }];
+  });
+  if (ended.length === AGENTS.length && ended.every((e) => e.reason === ended[0].reason)) {
+    return [`Session ended: ${ended[0].reason}`];
+  }
+  return ended.map((e) => `${e.label} session ended: ${e.reason}`);
+}
 
 export function RunPage({ onLocked }: { onLocked: () => void }) {
   const { runId } = useParams() as { runId: string };
@@ -23,7 +51,7 @@ function Run({ runId, prompt, onLocked }: { runId: string; prompt: string; onLoc
   // `sending` only updates on the next render, too late to stop a quick second Enter.
   const sendingRef = useRef(false);
 
-  const allFinished = AGENTS.every((a) => isFinished(state.agents[a.id].status));
+  const allFinished = AGENTS.every((a) => isFinished(currentTurn(state.agents[a.id]).status));
   const sessionOver = AGENTS.every((a) => state.agents[a.id].closed !== undefined);
   const canFollowUp = allFinished && !sessionOver;
 
@@ -83,70 +111,72 @@ function Run({ runId, prompt, onLocked }: { runId: string; prompt: string; onLoc
   }
 
   return (
-    <AppShell header={{ height: 52 }} padding="md">
-      <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
+    <Container size="xl" py="lg">
+      <Stack gap={40}>
+        <Group justify="space-between">
           <UnstyledButton component={Link} to="/">
-            <Title order={4}>Agent test drive</Title>
+            <Title order={3}>Agent test drive</Title>
           </UnstyledButton>
-          {sessionOver ? (
-            <Button size="xs" variant="default" leftSection={<IconPlus size={14} />} component={Link} to="/">
+          <Group gap="xs">
+            {!sessionOver && (
+              <Button size="sm" radius="xl" variant="default" fw={400} onClick={cancel}>
+                {allFinished ? "End session" : "Cancel"}
+              </Button>
+            )}
+            <Button size="sm" radius="xl" fw={400} component={Link} to="/">
               New prompt
             </Button>
-          ) : allFinished ? (
-            <Button size="xs" variant="default" leftSection={<IconPlayerStop size={14} />} onClick={cancel}>
-              End session
-            </Button>
-          ) : (
-            <Button size="xs" color="red" variant="light" leftSection={<IconPlayerStop size={14} />} onClick={cancel}>
-              Cancel
-            </Button>
-          )}
+          </Group>
         </Group>
-      </AppShell.Header>
 
-      <AppShell.Main>
-        <Container size="xl">
-          <Stack>
-            {error && (
-              <Alert color="red" title={error.title} withCloseButton onClose={() => setError(undefined)}>
-                {error.message}
-              </Alert>
-            )}
-            {state.prompt && <PromptBubble text={state.prompt} />}
-            <SimpleGrid cols={{ base: 1, md: 2 }} style={{ alignItems: "start" }}>
-              {AGENTS.map((a) => (
-                <AgentColumn key={a.id} name={a.label} agent={state.agents[a.id]} />
-              ))}
-            </SimpleGrid>
-            {allFinished && <ComparisonTable agents={state.agents} />}
-            {canFollowUp && (
-              <Textarea
-                aria-label="Follow-up prompt"
-                placeholder="Ask a follow-up, e.g. “Add tests for this code”"
-                autosize
-                minRows={2}
-                maxRows={10}
-                value={draft}
-                onChange={(e) => setDraft(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    void followUp();
-                  }
-                }}
-                rightSectionWidth={52}
-                rightSectionProps={{ style: { alignItems: "flex-end", paddingBottom: 8 } }}
-                rightSection={
-                  <ActionIcon size="lg" aria-label="Send follow-up" onClick={followUp} loading={sending} disabled={!draft.trim()}>
-                    <IconArrowUp size={18} />
-                  </ActionIcon>
-                }
-              />
-            )}
+        {error && (
+          <Alert color="red" title={error.title} withCloseButton onClose={() => setError(undefined)}>
+            {error.message}
+          </Alert>
+        )}
+
+        {state.prompts.map((prompt, i) => (
+          <Stack key={i} gap="xl">
+            {prompt && <PromptBubble text={prompt} />}
+            <Stack gap="xs">
+              <ThinkingLine {...turnStatus(state, i)} />
+              <SimpleGrid cols={{ base: 1, md: 2 }} style={{ alignItems: "start" }}>
+                {AGENTS.map((a) => (
+                  <AgentColumn key={a.id} name={a.label} turn={state.agents[a.id].turns[i]} first={i === 0} />
+                ))}
+              </SimpleGrid>
+            </Stack>
           </Stack>
-        </Container>
-      </AppShell.Main>
-    </AppShell>
+        ))}
+
+        {allFinished && (
+          <Stack gap="xs">
+            <Text c="dimmed">Result analysis</Text>
+            <ComparisonTable agents={state.agents} />
+          </Stack>
+        )}
+
+        {sessionEndLines(state).map((line) => (
+          <Text key={line} c="dimmed">
+            {line}
+          </Text>
+        ))}
+
+        {canFollowUp && (
+          // Same container as the prompt page, so both boxes are the same width.
+          <Container size={840} w="100%">
+            <PromptTextarea
+              aria-label="Follow-up prompt"
+              placeholder="Ask a follow-up, e.g. “Add tests for this code”"
+              value={draft}
+              onChange={setDraft}
+              onSubmit={() => void followUp()}
+              sendLabel="Send follow-up"
+              loading={sending}
+            />
+          </Container>
+        )}
+      </Stack>
+    </Container>
   );
 }

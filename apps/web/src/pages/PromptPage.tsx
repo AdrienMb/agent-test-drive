@@ -1,6 +1,5 @@
 import { Fragment, useRef, useState } from "react";
 import {
-  ActionIcon,
   Alert,
   Button,
   Container,
@@ -8,14 +7,14 @@ import {
   Group,
   Stack,
   Text,
-  Textarea,
   Title,
   Tooltip,
 } from "@mantine/core";
-import { IconArrowUp, IconLock } from "@tabler/icons-react";
+import { IconLock } from "@tabler/icons-react";
 import { useNavigate } from "react-router";
 import { AGENTS } from "@atd/shared";
 import { errorMessage } from "../format";
+import { PromptTextarea } from "../ui/PromptTextarea";
 import { SelectButton } from "../ui/SelectButton";
 
 const PLACEHOLDER =
@@ -52,8 +51,6 @@ export function PromptPage({ onLocked }: { onLocked: () => void }) {
   const [starting, setStarting] = useState(false);
   // `starting` only updates on the next render, too late to stop a quick second Enter.
   const startingRef = useRef(false);
-
-  const canSend = draft.trim() !== "";
 
   async function send(prompt: string) {
     if (!prompt || startingRef.current) return;
@@ -125,40 +122,13 @@ export function PromptPage({ onLocked }: { onLocked: () => void }) {
           </Alert>
         )}
 
-        <Textarea
+        <PromptTextarea
           aria-label="Prompt"
-          size="md"
           placeholder={PLACEHOLDER}
-          autosize
-          minRows={3}
-          maxRows={12}
           value={draft}
-          onChange={(e) => setDraft(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (
-              e.key === "Enter" &&
-              !e.shiftKey &&
-              !e.nativeEvent.isComposing
-            ) {
-              e.preventDefault();
-              void send(draft.trim());
-            }
-          }}
-          rightSectionWidth={52}
-          rightSectionProps={{
-            style: { alignItems: "flex-end", paddingBottom: 10 },
-          }}
-          rightSection={
-            <ActionIcon
-              size="lg"
-              aria-label="Send"
-              onClick={() => send(draft.trim())}
-              loading={starting}
-              disabled={!canSend}
-            >
-              <IconArrowUp size={18} />
-            </ActionIcon>
-          }
+          onChange={setDraft}
+          onSubmit={() => void send(draft.trim())}
+          loading={starting}
         />
 
         <Stack gap="sm">

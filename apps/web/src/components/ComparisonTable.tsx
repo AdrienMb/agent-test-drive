@@ -1,16 +1,18 @@
-import { Paper, Table, Title } from "@mantine/core";
+import { Paper, Table } from "@mantine/core";
 import { AGENTS, type AgentId, type ToolKind } from "@atd/shared";
 import { countWorkspaceFiles, type AgentState } from "../state";
 import { formatCost, formatDuration, formatNumber } from "../format";
 import { TOOL_KINDS } from "../toolKinds";
 
 function stats(agent: AgentState) {
-  const calls = agent.items.flatMap((i) => (i.type === "tool_call" ? [i.call] : []));
+  const calls = agent.turns.flatMap((t) => t.items.flatMap((i) => (i.type === "tool_call" ? [i.call] : [])));
   const byKind = new Map<ToolKind, number>();
   for (const c of calls) byKind.set(c.tool, (byKind.get(c.tool) ?? 0) + 1);
   const files = new Set(calls.flatMap((c) => (c.tool === "file_edit" ? (c.files ?? []) : [])));
-  const wall = agent.startedAt !== undefined ? agent.wallMs : undefined;
-  const created = agent.files && countWorkspaceFiles(agent.files.files);
+  const wall = agent.turns[0].startedAt !== undefined ? agent.wallMs : undefined;
+  // A turn that failed early sends no snapshot, so fall back to an earlier one.
+  const workspace = agent.turns.findLast((t) => t.files)?.files;
+  const created = workspace && countWorkspaceFiles(workspace.files);
   return { calls: calls.length, byKind, files: [...files], created, wall, usage: agent.usage };
 }
 
@@ -31,10 +33,7 @@ export function ComparisonTable({ agents }: { agents: Record<AgentId, AgentState
   ];
 
   return (
-    <Paper withBorder radius="md" p="sm">
-      <Title order={5} mb="xs">
-        Comparison
-      </Title>
+    <Paper withBorder radius="md" p="xs">
       <Table striped withColumnBorders>
         <Table.Thead>
           <Table.Tr>

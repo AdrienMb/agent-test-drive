@@ -1,30 +1,28 @@
 import { useEffect, useState } from "react";
-import { Alert, Badge, Collapse, Group, Loader, Paper, Stack, Text, Title, UnstyledButton } from "@mantine/core";
+import { Alert, Badge, Collapse, Group, Paper, Stack, Text, Title, UnstyledButton } from "@mantine/core";
 import { IconAlertTriangle, IconBrain } from "@tabler/icons-react";
-import type { AgentState, TimelineItem } from "../state";
+import type { TimelineItem, Turn } from "../state";
 import { isFinished } from "../state";
 import { formatDuration } from "../format";
 import { ToolCallCard } from "./ToolCallCard";
 import { FilesPanel } from "./FilesPanel";
 
-const STATUS_COLORS: Record<AgentState["status"], string> = {
-  idle: "gray",
-  running: "blue",
-  done: "green",
+// No badge while running (the line above the cards shows that) or when done (the timer says so).
+const STATUS_COLORS: Partial<Record<Turn["status"], string>> = {
   failed: "red",
   cancelled: "yellow",
 };
 
-function useElapsed(agent: AgentState): number | undefined {
+function useElapsed(turn: Turn | undefined): number | undefined {
   const [now, setNow] = useState(Date.now());
-  const running = agent.status === "running";
+  const running = turn?.status === "running";
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [running]);
-  if (agent.startedAt === undefined) return undefined;
-  return (agent.endedAt ?? Math.max(now, agent.startedAt)) - agent.startedAt;
+  if (turn?.startedAt === undefined) return undefined;
+  return (turn.endedAt ?? Math.max(now, turn.startedAt)) - turn.startedAt;
 }
 
 function Reasoning({ text }: { text: string }) {
@@ -51,8 +49,8 @@ function Reasoning({ text }: { text: string }) {
 export function PromptBubble({ text }: { text: string }) {
   return (
     <Group justify="flex-end">
-      <Paper radius="lg" px="md" py="xs" bg="var(--mantine-color-default-hover)" maw="80%">
-        <Text size="sm" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+      <Paper radius="md" px="md" py="sm" bg="var(--mantine-color-default-hover)" maw="min(600px, 85%)">
+        <Text size="sm" c="dimmed" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
           {text}
         </Text>
       </Paper>
@@ -62,8 +60,6 @@ export function PromptBubble({ text }: { text: string }) {
 
 function Item({ item }: { item: TimelineItem }) {
   switch (item.type) {
-    case "prompt":
-      return <PromptBubble text={item.text} />;
     case "message":
       return (
         <Text size="sm" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
@@ -85,39 +81,48 @@ function Item({ item }: { item: TimelineItem }) {
   }
 }
 
-export function AgentColumn({ name, agent }: { name: string; agent: AgentState }) {
-  const elapsed = useElapsed(agent);
+/**
+ * One agent's answer to one prompt. `turn` is missing when the agent's session ended before this prompt.
+ */
+export function AgentColumn({ name, turn, first }: { name: string; turn?: Turn; first: boolean }) {
+  const elapsed = useElapsed(turn);
+  const badgeColor = turn ? STATUS_COLORS[turn.status] : "gray";
   return (
     <Paper withBorder radius="md" p="sm">
       <Group justify="space-between" mb="sm">
         <Group gap="xs">
-          <Title order={4}>{name}</Title>
-          <Badge color={STATUS_COLORS[agent.status]} variant="light" leftSection={agent.status === "running" ? <Loader size={10} color="blue" /> : null}>
-            {agent.status}
-          </Badge>
+          <Title order={4} ff="text" fz="lg" fw={600}>
+            {name}
+          </Title>
+          {badgeColor && (
+            <Badge color={badgeColor} variant="light" size="sm" radius="xl">
+              {turn ? turn.status : "not sent"}
+            </Badge>
+          )}
         </Group>
         <Text size="sm" c="dimmed" ff="monospace">
+          {turn?.status === "done" && "Done in "}
           {formatDuration(elapsed)}
         </Text>
       </Group>
       <Stack gap="xs">
-        {agent.items.map((item) => (
+        {turn?.items.map((item) => (
           <Item key={item.key} item={item} />
         ))}
-        {agent.files && <FilesPanel {...agent.files} />}
-        {agent.status === "running" && agent.items.length === 0 && (
+        {turn?.files && <FilesPanel {...turn.files} />}
+        {turn?.status === "running" && turn.items.length === 0 && (
           <Text size="sm" c="dimmed">
-            Starting container…
+            {first ? "Starting container…" : "Waiting for the agent…"}
           </Text>
         )}
-        {isFinished(agent.status) && agent.items.length === 0 && (
+        {turn && isFinished(turn.status) && turn.items.length === 0 && (
           <Text size="sm" c="dimmed">
             No output.
           </Text>
         )}
-        {agent.closed && (
-          <Text size="xs" c="dimmed" ta="center">
-            Session ended: {agent.closed}
+        {!turn && (
+          <Text size="sm" c="dimmed">
+            This agent's session had already ended.
           </Text>
         )}
       </Stack>
