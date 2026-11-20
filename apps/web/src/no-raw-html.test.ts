@@ -7,7 +7,7 @@ const FORBIDDEN = [/dangerouslySetInnerHTML/, /\.innerHTML\b/, /\.outerHTML\b/, 
 
 describe("web sources", () => {
   it("are found", () => {
-    expect(Object.keys(sources)).toContain("./components/FilesPanel.tsx");
+    expect(Object.keys(sources)).toContain("./run/FilesPanel.tsx");
   });
 
   it.each(Object.entries(sources))("%s uses no raw HTML sinks", (_file, source) => {

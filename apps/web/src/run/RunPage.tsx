@@ -2,11 +2,11 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { Alert, Button, Container, Group, SimpleGrid, Stack, Text, Title, UnstyledButton } from "@mantine/core";
 import { Link, useLocation, useParams } from "react-router";
 import { AGENTS, type RunEvent } from "@atd/shared";
-import { currentTurn, initialState, isFinished, reducer, type State } from "../state";
-import { errorMessage } from "../format";
-import { AgentColumn, PromptBubble } from "../components/AgentColumn";
-import { ComparisonTable } from "../components/ComparisonTable";
-import { ThinkingLine } from "../components/ThinkingLine";
+import { currentTurn, initialState, isFinished, reducer, type State } from "./state";
+import { errorMessage } from "../lib/format";
+import { AgentColumn, PromptBubble } from "./AgentColumn";
+import { ComparisonTable } from "./ComparisonTable";
+import { ThinkingLine } from "./ThinkingLine";
 import { PromptTextarea } from "../ui/PromptTextarea";
 
 const COLD_START_HINT_MS = 5_000;

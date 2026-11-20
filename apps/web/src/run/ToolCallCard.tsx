@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Badge, Code, Collapse, Group, Loader, Paper, Stack, Text, ThemeIcon, UnstyledButton } from "@mantine/core";
 import { IconCheck, IconChevronDown, IconChevronRight, IconX } from "@tabler/icons-react";
-import type { ToolCallEvent } from "../state";
-import { TOOL_KINDS } from "../toolKinds";
+import type { ToolCallEvent } from "./state";
+import { TOOL_KINDS } from "./toolKinds";
 
 const UI_OUTPUT_LIMIT = 3_000;
 

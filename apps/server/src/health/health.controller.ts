@@ -1,5 +1,5 @@
 import { Controller, Get, Inject } from "@nestjs/common";
-import { SANDBOX_PROVIDER, type SandboxProvider } from "./sandbox/sandbox.types.js";
+import { SANDBOX_PROVIDER, type SandboxProvider } from "../sandbox/sandbox.types.js";
 
 /** Railway's deploy healthcheck. */
 @Controller("health")

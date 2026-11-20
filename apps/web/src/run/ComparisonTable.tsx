@@ -1,8 +1,8 @@
 import { Paper, Table } from "@mantine/core";
 import { AGENTS, type AgentId, type ToolKind } from "@atd/shared";
-import { countWorkspaceFiles, type AgentState } from "../state";
-import { formatCost, formatDuration, formatNumber } from "../format";
-import { TOOL_KINDS } from "../toolKinds";
+import { countWorkspaceFiles, type AgentState } from "./state";
+import { formatCost, formatDuration, formatNumber } from "../lib/format";
+import { TOOL_KINDS } from "./toolKinds";
 
 function stats(agent: AgentState) {
   const calls = agent.turns.flatMap((t) => t.items.flatMap((i) => (i.type === "tool_call" ? [i.call] : [])));

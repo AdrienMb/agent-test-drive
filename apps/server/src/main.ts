@@ -7,7 +7,7 @@ import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module.js";
-import { passphraseGate, resolvePassphrase } from "./auth.js";
+import { passphraseGate, resolvePassphrase } from "./auth/passphrase-gate.js";
 
 async function bootstrap(): Promise<void> {
   const passphrase = resolvePassphrase(process.env);

@@ -13,7 +13,7 @@ import {
 import { IconLock } from "@tabler/icons-react";
 import { useNavigate } from "react-router";
 import { AGENTS } from "@atd/shared";
-import { errorMessage } from "../format";
+import { errorMessage } from "../lib/format";
 import { PromptTextarea } from "../ui/PromptTextarea";
 import { SelectButton } from "../ui/SelectButton";
 

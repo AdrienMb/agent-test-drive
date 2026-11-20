@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Alert, Badge, Collapse, Group, Paper, Stack, Text, Title, UnstyledButton } from "@mantine/core";
 import { IconAlertTriangle, IconBrain } from "@tabler/icons-react";
-import type { TimelineItem, Turn } from "../state";
-import { isFinished } from "../state";
-import { formatDuration } from "../format";
+import type { TimelineItem, Turn } from "./state";
+import { isFinished } from "./state";
+import { formatDuration } from "../lib/format";
 import { ToolCallCard } from "./ToolCallCard";
 import { FilesPanel } from "./FilesPanel";
 

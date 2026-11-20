@@ -1,6 +1,6 @@
 import { Logger, Module } from "@nestjs/common";
-import { DockerSandboxProvider } from "./docker.provider.js";
-import { RailwaySandboxProvider } from "./railway.provider.js";
+import { DockerSandboxProvider } from "./providers/docker.provider.js";
+import { RailwaySandboxProvider } from "./providers/railway.provider.js";
 import { SANDBOX_PROVIDER, type SandboxProvider } from "./sandbox.types.js";
 
 // 0 would mean "never idle out", so a crashed server could leak sandboxes indefinitely.

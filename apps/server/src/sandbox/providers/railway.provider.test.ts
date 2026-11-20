@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ExecOptions } from "railway";
 import type { NormalizedEvent } from "@atd/shared";
 import { RailwaySandboxProvider, type RemoteSandbox } from "./railway.provider.js";
-import type { SandboxSpec } from "./sandbox.types.js";
+import type { SandboxSpec } from "../sandbox.types.js";
 
 const spec: SandboxSpec = {
   name: "cmp-abc-claude",

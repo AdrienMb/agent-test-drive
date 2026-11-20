@@ -1,8 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import type { AgentId } from "@atd/shared";
-import { splitLines } from "./line-splitter.js";
-import { MAX_LINE_BYTES, parseRunnerLine } from "./runner-protocol.js";
-import type { SandboxHandle, SandboxListener, SandboxProvider, SandboxSpec } from "./sandbox.types.js";
+import { splitLines } from "../line-splitter.js";
+import { MAX_LINE_BYTES, parseRunnerLine } from "../runner-protocol.js";
+import type { SandboxHandle, SandboxListener, SandboxProvider, SandboxSpec } from "../sandbox.types.js";
 
 const MAX_STDERR_LINE_BYTES = 64 * 1024;
 

@@ -14,8 +14,8 @@ import {
   checkPassphrase,
   forgetPassphrase,
   savePassphrase,
-} from "../passphrase";
-import { errorMessage } from "../format";
+} from "./passphrase";
+import { errorMessage } from "../lib/format";
 
 type Status = "checking" | "locked" | "open";
 

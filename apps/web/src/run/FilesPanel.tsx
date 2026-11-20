@@ -2,9 +2,9 @@ import { useState } from "react";
 import { ActionIcon, Badge, Code, Group, Paper, Stack, Text, UnstyledButton } from "@mantine/core";
 import { IconChevronDown, IconChevronRight, IconDownload, IconFile, IconFolder } from "@tabler/icons-react";
 import type { FileSkipReason, WorkspaceFile } from "@atd/shared";
-import { countWorkspaceFiles, type FilesEvent } from "../state";
-import { formatBytes } from "../format";
-import { downloadText } from "../download";
+import { countWorkspaceFiles, type FilesEvent } from "./state";
+import { formatBytes } from "../lib/format";
+import { downloadText } from "../lib/download";
 
 const SKIP_LABELS: Record<FileSkipReason, { label: string; hint: string }> = {
   binary: { label: "binary", hint: "Binary files are not shown" },

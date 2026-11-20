@@ -134,7 +134,7 @@ and event bookkeeping stay in `RunsService`, so every provider behaves the same.
 - `railway` (production): `RailwaySandboxProvider` in `sandbox/railway.provider.ts`, see
   [Railway sandboxes](#railway-sandboxes).
 
-To add a provider, implement `SandboxProvider` in `apps/server/src/sandbox/` (reuse
+To add a provider, implement `SandboxProvider` in `apps/server/src/sandbox/providers/` (reuse
 `parseRunnerLine` from `runner-protocol.ts` if the runner's stdout comes back as text
 lines) and register it in `createSandboxProvider` in `sandbox.module.ts`.
 

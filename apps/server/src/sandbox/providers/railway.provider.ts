@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 import { Logger } from "@nestjs/common";
 import { Sandbox, type CreateOptions, type ExecOptions, type ExecStdin, type SandboxTemplate } from "railway";
 import { AGENTS, type AgentId } from "@atd/shared";
-import { splitLines } from "./line-splitter.js";
-import { MAX_LINE_BYTES, parseRunnerLine } from "./runner-protocol.js";
-import type { SandboxHandle, SandboxListener, SandboxProvider, SandboxSpec } from "./sandbox.types.js";
+import { splitLines } from "../line-splitter.js";
+import { MAX_LINE_BYTES, parseRunnerLine } from "../runner-protocol.js";
+import type { SandboxHandle, SandboxListener, SandboxProvider, SandboxSpec } from "../sandbox.types.js";
 
 const MAX_STDERR_LINE_BYTES = 64 * 1024;
 const HEARTBEAT_MS = 60_000;
@@ -97,7 +97,7 @@ interface LiveSandbox {
   destroyed?: Promise<void>;
 }
 
-const packageDir = (name: string) => fileURLToPath(new URL(`../../../../packages/${name}/`, import.meta.url));
+const packageDir = (name: string) => fileURLToPath(new URL(`../../../../../packages/${name}/`, import.meta.url));
 
 function listJsFiles(dir: string): string[] {
   return readdirSync(dir, { recursive: true, withFileTypes: true })

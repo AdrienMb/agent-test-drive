@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it, vi } from "vitest";
-import { passphraseGate, resolvePassphrase } from "./auth.js";
+import { passphraseGate, resolvePassphrase } from "./passphrase-gate.js";
 
 function call(url: string, cookie?: string) {
   const req = { url, headers: { cookie } } as IncomingMessage;

@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from "react-router";
-import { PromptPage } from "./pages/PromptPage";
-import { RunPage } from "./pages/RunPage";
+import { PromptPage } from "./prompt/PromptPage";
+import { RunPage } from "./run/RunPage";
 
 export function App({ onLocked }: { onLocked: () => void }) {
   return (
