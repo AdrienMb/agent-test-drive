@@ -3,6 +3,46 @@
 Send one prompt to **Claude Code** and **Codex** at the same time, each in its own
 Docker container, and watch what they do side by side.
 
+## Setup
+
+Requirements:
+
+- Node 22.12+ with corepack
+- Docker running locally
+- An Anthropic API key and an OpenAI API key
+
+```sh
+git clone git@github.com:AdrienMb/agent-test-drive.git
+cd agent-test-drive
+corepack enable
+cp .env.example .env        # then fill in ANTHROPIC_API_KEY and OPENAI_API_KEY
+yarn install
+yarn docker:build           # builds agent-runner-claude:latest and agent-runner-codex:latest
+yarn dev                    # API on :3000, web on http://localhost:5173
+```
+
+The server starts containers with `--pull=never`, so a run fails right away if the images
+haven't been built: run `yarn docker:build` first.
+
+Other scripts:
+
+- `yarn typecheck`: typechecks every workspace.
+- `yarn test`: runs the Vitest suites of every workspace (no Docker or API keys needed).
+- `yarn build:shared`: builds `packages/shared` (`dev` and `typecheck` run it first).
+
+After changing anything in `packages/runner` or `packages/shared`, run
+`yarn docker:build` again (or `docker:build:claude` / `docker:build:codex` for one agent):
+the runner only runs inside the images.
+
+### Try it
+
+Send _"Write a Python script that prints the first 20 Fibonacci numbers, then run it"_.
+Both columns stream live; shell commands and file edits get highlighted cards, and a
+comparison table (time, tool calls by kind, files edited, files in the workspace, tokens, cost) appears once both
+agents are finished. **Cancel** runs `docker kill` on both containers. Between turns the containers stay up
+for follow-ups; **End session** (or 5 idle minutes) kills them, and `docker ps` should
+then show nothing left.
+
 ## Architecture
 
 ```
@@ -24,7 +64,7 @@ How a run goes:
 
 1. `POST /api/runs { prompt }` creates a run and, for each agent, starts a sandbox through
    the active `SandboxProvider` (see [Sandbox providers](#sandbox-providers)). With Docker
-   that is `docker run --rm -i --init --name cmp-<runId>-<agent> --memory 2g --cpus 2 -e <ONE_API_KEY> agent-runner-<agent>:latest`.
+   that is `docker run --rm -i --init --pull=never --name cmp-<runId>-<agent> --memory 2g --cpus 2 -e <ONE_API_KEY> agent-runner-<agent>:latest`.
    Each agent has its own image, and each container only gets the key its agent needs.
 2. The server writes `{"agent":"claude"|"codex","prompt":"...","turn":"<id>"}` to the container's stdin,
    and keeps stdin open for follow-ups (see [Follow-up prompts](#follow-up-prompts)).
@@ -61,52 +101,21 @@ agent prints them. A session ends, killing its sandboxes, on **End session** (or
 mid-turn), when a sandbox dies, or after 5 minutes without a follow-up (`IDLE_TIMEOUT_MS`
 in `runs.service.ts`). The comparison table sums time, tokens and cost over every turn.
 
-## Setup
-
-Requirements: Node 22+ (with corepack), Docker running locally.
-
-```sh
-corepack enable
-cp .env.example .env        # then fill in ANTHROPIC_API_KEY and OPENAI_API_KEY
-yarn install
-yarn docker:build           # builds agent-runner-claude:latest and agent-runner-codex:latest
-yarn dev                    # API on :3000, web on http://localhost:5173
-```
-
-Other scripts:
-
-- `yarn typecheck`: typechecks every workspace.
-- `yarn test`: runs the Vitest suites of every workspace (no Docker or API keys needed).
-- `yarn build:shared`: builds `packages/shared` (`dev` and `typecheck` run it first).
-
-After changing anything in `packages/runner` or `packages/shared`, run
-`yarn docker:build` again (or `docker:build:claude` / `docker:build:codex` for one agent):
-the runner only runs inside the images.
-
-### Try it
-
-Send _"Write a Python script that prints the first 20 Fibonacci numbers, then run it"_.
-Both columns stream live; shell commands and file edits get highlighted cards, and a
-comparison table (time, tool calls by kind, files edited, files in the workspace, tokens, cost) appears once both
-agents are finished. **Cancel** runs `docker kill` on both containers. Between turns the containers stay up
-for follow-ups; **End session** (or 5 idle minutes) kills them, and `docker ps` should
-then show nothing left.
-
 ## Configuration
 
-| Variable              | Default                      | Used by                    |
-| --------------------- | ---------------------------- | -------------------------- |
-| `ANTHROPIC_API_KEY`   |                              | Claude container           |
-| `OPENAI_API_KEY`      |                              | Codex container            |
-| `PORT`                | `3000`                       | API server                 |
-| `APP_PASSWORD`        |                              | Password gate (required in production) |
-| `API_PORT`            | `3000`                       | Vite dev proxy target      |
-| `RUNNER_IMAGE_CLAUDE` | `agent-runner-claude:latest` | Image for the Claude agent |
-| `RUNNER_IMAGE_CODEX`  | `agent-runner-codex:latest`  | Image for the Codex agent  |
-| `SANDBOX_PROVIDER`    | `docker`                     | Where runners execute      |
-| `RAILWAY_TOKEN`       |                              | Railway provider (project token) |
-| `RAILWAY_API_TOKEN`   |                              | Railway provider, instead of `RAILWAY_TOKEN` (needs `RAILWAY_ENVIRONMENT_ID`) |
-| `RAILWAY_SANDBOX_IDLE_TIMEOUT_MINUTES` | `5`         | Railway provider           |
+| Variable                               | Default                      | Used by                                                                       |
+| -------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`                    |                              | Claude container                                                              |
+| `OPENAI_API_KEY`                       |                              | Codex container                                                               |
+| `PORT`                                 | `3000`                       | API server                                                                    |
+| `APP_PASSWORD`                         |                              | Password gate (required in production)                                        |
+| `API_PORT`                             | `3000`                       | Vite dev proxy target                                                         |
+| `RUNNER_IMAGE_CLAUDE`                  | `agent-runner-claude:latest` | Image for the Claude agent                                                    |
+| `RUNNER_IMAGE_CODEX`                   | `agent-runner-codex:latest`  | Image for the Codex agent                                                     |
+| `SANDBOX_PROVIDER`                     | `docker`                     | Where runners execute                                                         |
+| `RAILWAY_TOKEN`                        |                              | Railway provider (project token)                                              |
+| `RAILWAY_API_TOKEN`                    |                              | Railway provider, instead of `RAILWAY_TOKEN` (needs `RAILWAY_ENVIRONMENT_ID`) |
+| `RAILWAY_SANDBOX_IDLE_TIMEOUT_MINUTES` | `5`                          | Railway provider                                                              |
 
 The server loads `.env` from the repo root with `node --env-file-if-exists`.
 
@@ -142,6 +151,10 @@ to hit Railway's 5-minute build limit), `/workspace` as a git repo, and the agen
 the runner build from what Yarn installed). Templates are cached by recipe, so they only
 rebuild when an SDK version changes; the server builds both at boot to warm the cache.
 
+The provider uploads the runner from `packages/runner/dist`, which `yarn dev` doesn't build.
+To use it outside the production image, run `yarn workspace @atd/runner build` first (and
+again after changing the runner), then start the server with `SANDBOX_PROVIDER=railway`.
+
 For each agent the provider then:
 
 1. creates the sandbox from the template (`2 vCPU / 2 GB`, idle timeout 5 minutes),
@@ -163,7 +176,9 @@ built web app, and `SANDBOX_PROVIDER=railway` is set in the image. The image doe
 the agent SDKs (~380 MB instead of ~1.15 GB per runner image).
 
 Railway doesn't read `.railway/` on deploy: service settings change only when you apply
-them with the Railway CLI (5.42.1 or newer).
+them with the Railway CLI (5.42.1 or newer), installed with `brew install railway` or
+`npm install -g @railway/cli`. The `railway` package in this repo is only the SDK and
+doesn't provide the CLI.
 
 1. Create a project, then from the repo root: `railway login`, `railway link`,
    `railway config plan` (review it), `railway config apply`. This creates the
