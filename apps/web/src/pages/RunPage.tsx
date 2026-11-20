@@ -9,8 +9,10 @@ import { ComparisonTable } from "../components/ComparisonTable";
 import { ThinkingLine } from "../components/ThinkingLine";
 import { PromptTextarea } from "../ui/PromptTextarea";
 
-/** One status line for both agents' answers to prompt `i`. */
-function turnStatus(state: State, i: number): { text: string; active: boolean } {
+const COLD_START_HINT_MS = 5_000;
+
+/** One status line for both agents' answers to prompt `i`. `startingSince` is set while the containers start. */
+function turnStatus(state: State, i: number): { text: string; active: boolean; startingSince?: number } {
   const sent = AGENTS.flatMap((a) => {
     const turn = state.agents[a.id].turns[i];
     return turn ? [{ label: a.label, turn }] : [];
@@ -18,10 +20,26 @@ function turnStatus(state: State, i: number): { text: string; active: boolean } 
   const busy = sent.filter((s) => !isFinished(s.turn.status));
   if (busy.length === 0) return { text: "Agent answers", active: false };
   if (busy.every((s) => s.turn.items.length === 0)) {
-    return { text: i === 0 ? "Starting the containers" : "Sending the prompt to the agents", active: true };
+    if (i > 0) return { text: "Sending the prompt to the agents", active: true };
+    const starts = busy.flatMap((s) => (s.turn.startedAt === undefined ? [] : [s.turn.startedAt]));
+    return { text: "Starting the containers", active: true, startingSince: starts.length ? Math.min(...starts) : undefined };
   }
   if (busy.length < sent.length) return { text: `Waiting for ${busy.map((s) => s.label).join(" and ")}`, active: true };
   return { text: "The agents are working", active: true };
+}
+
+/** Ticks on its own so the whole run page doesn't re-render every second while the containers start. */
+function TurnStatusLine({ state, i }: { state: State; i: number }) {
+  const { text, active, startingSince } = turnStatus(state, i);
+  const [now, setNow] = useState(Date.now());
+  const starting = startingSince !== undefined;
+  useEffect(() => {
+    if (!starting) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [starting]);
+  const cold = starting && now - startingSince > COLD_START_HINT_MS;
+  return <ThinkingLine text={cold ? "This looks like a cold start, so it may take a few more seconds" : text} active={active} />;
 }
 
 /** One line when both sessions ended for the same reason, otherwise one per ended agent. */
@@ -139,7 +157,7 @@ function Run({ runId, prompt, onLocked }: { runId: string; prompt: string; onLoc
           <Stack key={i} gap="xl">
             {prompt && <PromptBubble text={prompt} />}
             <Stack gap="xs">
-              <ThinkingLine {...turnStatus(state, i)} />
+              <TurnStatusLine state={state} i={i} />
               <SimpleGrid cols={{ base: 1, md: 2 }} style={{ alignItems: "start" }}>
                 {AGENTS.map((a) => (
                   <AgentColumn key={a.id} name={a.label} turn={state.agents[a.id].turns[i]} first={i === 0} />
