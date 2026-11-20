@@ -24,6 +24,7 @@ export default defineRailway((_ctx, project) => {
       RAILWAY_TOKEN: preserve(),
       ANTHROPIC_API_KEY: preserve(),
       OPENAI_API_KEY: preserve(),
+      APP_PASSWORD: preserve(),
     },
   });
 

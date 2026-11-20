@@ -2,6 +2,8 @@ import type { WorkspaceFile } from "./files.js";
 
 export * from "./files.js";
 
+export const PASSPHRASE_COOKIE = "atd_passphrase";
+
 export type AgentId = "claude" | "codex";
 
 export const AGENTS: readonly { id: AgentId; label: string }[] = [
@@ -9,7 +11,14 @@ export const AGENTS: readonly { id: AgentId; label: string }[] = [
   { id: "codex", label: "Codex" },
 ];
 
-export type ToolKind = "shell" | "file_edit" | "web_search" | "mcp" | "todo" | "read" | "other";
+export type ToolKind =
+  | "shell"
+  | "file_edit"
+  | "web_search"
+  | "mcp"
+  | "todo"
+  | "read"
+  | "other";
 
 export type RunStatus = "running" | "done" | "failed" | "cancelled";
 
@@ -28,7 +37,13 @@ export type NormalizedEvent =
       output?: string;
       files?: string[];
     }
-  | { kind: "usage"; inputTokens?: number; outputTokens?: number; costUsd?: number; durationMs?: number }
+  | {
+      kind: "usage";
+      inputTokens?: number;
+      outputTokens?: number;
+      costUsd?: number;
+      durationMs?: number;
+    }
   /** Sent once, when the agent is done. `truncated` means some files were left out of the list. */
   | { kind: "files"; files: WorkspaceFile[]; truncated: boolean }
   | { kind: "error"; message: string };

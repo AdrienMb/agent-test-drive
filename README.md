@@ -78,6 +78,7 @@ agents are finished. **Cancel** runs `docker kill` on both containers.
 | `ANTHROPIC_API_KEY`   |                              | Claude container           |
 | `OPENAI_API_KEY`      |                              | Codex container            |
 | `PORT`                | `3000`                       | API server                 |
+| `APP_PASSWORD`        |                              | Password gate (required in production) |
 | `API_PORT`            | `3000`                       | Vite dev proxy target      |
 | `RUNNER_IMAGE_CLAUDE` | `agent-runner-claude:latest` | Image for the Claude agent |
 | `RUNNER_IMAGE_CODEX`  | `agent-runner-codex:latest`  | Image for the Codex agent  |
@@ -148,9 +149,14 @@ them with the Railway CLI (5.42.1 or newer).
    `agent-test-drive` service from the GitHub repo, or updates the service with that name.
    Don't let Railway's GitHub import split the monorepo into one service per workspace.
 2. In the project settings, create a **project token** for the environment, then set the
-   service variables `RAILWAY_TOKEN`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`. The config
-   marks them `preserve()`: it keeps their values on Railway and never holds them.
+   service variables `RAILWAY_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `APP_PASSWORD`.
+   The config marks them `preserve()`: it keeps their values on Railway and never holds them.
 3. Generate a public domain for the service. The deploy healthcheck is `GET /api/health`.
+
+`APP_PASSWORD` keeps strangers from spending your API credits. The web app asks for it once
+and keeps it in a cookie; every API route except `/api/health` refuses requests without it,
+and the server refuses to start in production without it. Locally it is optional: leave it
+unset and there is no prompt.
 
 After editing `.railway/railway.ts`, run `railway config plan` and `railway config apply`
 again; pushing the file changes nothing on Railway.

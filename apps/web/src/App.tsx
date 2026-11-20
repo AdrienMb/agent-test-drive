@@ -10,7 +10,7 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 
 const EXAMPLE = "Write a Python script that prints the first 20 Fibonacci numbers, then run it";
 
-export function App() {
+export function App({ onLocked }: { onLocked: () => void }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [draft, setDraft] = useState(EXAMPLE);
   const [requestError, setRequestError] = useState<{ title: string; message: string }>();
@@ -46,6 +46,7 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
+      if (res.status === 401) return onLocked();
       if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
       const { runId } = (await res.json()) as { runId: string };
       dispatch({ type: "start", runId, prompt });
@@ -61,7 +62,9 @@ export function App() {
     if (!state.runId) return;
     try {
       const res = await fetch(`/api/runs/${state.runId}/cancel`, { method: "POST" });
-      if (res.status === 404) {
+      if (res.status === 401) {
+        onLocked();
+      } else if (res.status === 404) {
         dispatch({ type: "disconnected", message: "The server no longer knows this run, so it could not be cancelled." });
       } else if (!res.ok) {
         throw new Error(`${res.status} ${await res.text()}`);
