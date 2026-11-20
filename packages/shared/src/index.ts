@@ -45,14 +45,26 @@ export type NormalizedEvent =
       costUsd?: number;
       durationMs?: number;
     }
-  /** Sent once, when the agent is done. `truncated` means some files were left out of the list. */
+  /** Sent at the end of each turn. `truncated` means some files were left out of the list. */
   | { kind: "files"; files: WorkspaceFile[]; truncated: boolean }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  /** Server only (the runner protocol rejects it): a follow-up prompt sent to the agent. */
+  | { kind: "prompt"; text: string }
+  /** Server only: the sandbox is gone, so the agent takes no more prompts. */
+  | { kind: "closed"; reason: string };
 
-/** One line of JSON written to stdin of the runner container. */
+/** The first line of JSON written to the runner's stdin. */
 export interface RunnerJob {
   agent: AgentId;
   prompt: string;
+  /** Random per turn. The runner tags each event line with it, so the server can drop lines that don't belong to the current turn. */
+  turn: string;
+}
+
+/** Each later line: one follow-up prompt in the same agent session, sent once the previous turn has ended. */
+export interface RunnerFollowUp {
+  prompt: string;
+  turn: string;
 }
 
 /** What the server streams to the browser over SSE. */

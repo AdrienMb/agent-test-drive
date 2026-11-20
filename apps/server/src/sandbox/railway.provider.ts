@@ -4,7 +4,7 @@ import { PassThrough } from "node:stream";
 import { finished } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { Logger } from "@nestjs/common";
-import { Sandbox, type CreateOptions, type ExecOptions, type SandboxTemplate } from "railway";
+import { Sandbox, type CreateOptions, type ExecOptions, type ExecStdin, type SandboxTemplate } from "railway";
 import { AGENTS, type AgentId } from "@atd/shared";
 import { splitLines } from "./line-splitter.js";
 import { MAX_LINE_BYTES, parseRunnerLine } from "./runner-protocol.js";
@@ -18,7 +18,6 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 const APP_DIR = "/opt/atd";
 const WORKSPACE = "/workspace";
 const AGENT_USER = "agent";
-const JOB_FILE = `${APP_DIR}/job.json`;
 
 /** Mirrors the prune stages of docker/agent-runner.Dockerfile. */
 const EXCLUDED_SCOPES: Record<AgentId, string[]> = {
@@ -30,10 +29,10 @@ const EXCLUDED_SCOPES: Record<AgentId, string[]> = {
 const AGENT_ENV = `PATH=/usr/local/bin:/usr/bin:/bin HOME=/home/${AGENT_USER}`;
 
 // Claude Code refuses bypassPermissions as root, and the Docker image runs as `node` too.
-// The shell opens the job file before runuser drops privileges.
+// Jobs and follow-ups arrive on the exec's stdin, which runuser passes through.
 const RUN_COMMAND = [
-  `if [ "$(id -u)" = 0 ]; then exec runuser -u ${AGENT_USER} -- env ${AGENT_ENV} node ${APP_DIR}/runner/dist/main.js < ${JOB_FILE};`,
-  `else exec node ${APP_DIR}/runner/dist/main.js < ${JOB_FILE}; fi`,
+  `if [ "$(id -u)" = 0 ]; then exec runuser -u ${AGENT_USER} -- env ${AGENT_ENV} node ${APP_DIR}/runner/dist/main.js;`,
+  `else exec node ${APP_DIR}/runner/dist/main.js; fi`,
 ].join(" ");
 
 /**
@@ -69,7 +68,7 @@ const RUNNER_ENV = { NODE_ENV: "production", DISABLE_AUTOUPDATER: "1" };
 /** The subset of the SDK's Sandbox this provider uses, so tests can fake it. */
 export interface RemoteSandbox {
   readonly id: string;
-  exec(command: string, options: ExecOptions): PromiseLike<{ exitCode: number | null }>;
+  exec(command: string, options: ExecOptions): PromiseLike<{ exitCode: number | null }> & { readonly stdin: Pick<ExecStdin, "write"> };
   readonly files: { write(path: string, data: string | Uint8Array): Promise<void> };
   heartbeat(): Promise<unknown>;
   destroy(): Promise<void>;
@@ -92,6 +91,8 @@ export interface RailwayProviderOptions {
 
 interface LiveSandbox {
   killed: boolean;
+  /** Set once the runner's exec has started. */
+  write?: (line: string) => void;
   booting?: Promise<RemoteSandbox>;
   destroyed?: Promise<void>;
 }
@@ -187,6 +188,7 @@ export class RailwaySandboxProvider implements SandboxProvider {
       .finally(() => this.live.delete(spec.name));
     return {
       name: spec.name,
+      send: (message) => live.write?.(`${JSON.stringify(message)}\n`),
       kill: () => {
         live.killed = true;
         // Destroying the sandbox ends the exec, which makes run() report the exit.
@@ -212,8 +214,8 @@ export class RailwaySandboxProvider implements SandboxProvider {
       MAX_LINE_BYTES,
       (line) => {
         if (!line.trim()) return;
-        const event = parseRunnerLine(line);
-        if (event) listener.onEvent(event);
+        const parsed = parseRunnerLine(line);
+        if (parsed) listener.onEvent(parsed.event, parsed.turn);
         else listener.onLog(`unrecognized stdout: ${line}`);
       },
       () => listener.onLog(`dropped a stdout line over ${MAX_LINE_BYTES} bytes`),
@@ -239,29 +241,34 @@ export class RailwaySandboxProvider implements SandboxProvider {
       if (live.killed) return;
       heartbeat = setInterval(() => void sandbox.heartbeat().catch(() => {}), HEARTBEAT_MS).unref();
 
-      await Promise.all([
-        ...this.bundle.map((f) => sandbox.files.write(f.path, f.content)),
-        sandbox.files.write(JOB_FILE, `${JSON.stringify(spec.job)}\n`),
-      ]);
+      await Promise.all(this.bundle.map((f) => sandbox.files.write(f.path, f.content)));
       if (live.killed) return;
 
       execStarted = true;
-      const result = await sandbox.exec(RUN_COMMAND, {
+      const exec = sandbox.exec(RUN_COMMAND, {
         cwd: WORKSPACE,
         env: { ...RUNNER_ENV, ...spec.env },
         ephemeral: true,
+        stdin: true,
         captureOutput: false,
         // A rejected exec gives no guarantee its callbacks have stopped, and writing to an ended stream throws.
         onStdout: (chunk) => void (stdout.writableEnded || stdout.write(chunk)),
         onStderr: (chunk) => void (stderr.writableEnded || stderr.write(chunk)),
       });
-      exit = { code: result.exitCode };
+      // Chained so lines reach the runner in order.
+      let writes = Promise.resolve();
+      live.write = (line) => {
+        writes = writes.then(() => exec.stdin.write(line)).catch((err: unknown) => listener.onLog(`railway stdin write failed: ${(err as Error).message}`));
+      };
+      live.write(`${JSON.stringify(spec.job)}\n`);
+      exit = { code: (await exec).exitCode };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       if (execStarted) listener.onLog(`railway exec failed: ${error.message}`);
       else exit = { code: null, error };
     } finally {
       clearInterval(heartbeat);
+      live.write = undefined;
       stdout.end();
       stderr.end();
       await Promise.allSettled([finished(stdout), finished(stderr)]);

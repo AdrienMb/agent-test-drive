@@ -49,7 +49,7 @@ export class DockerSandboxProvider implements SandboxProvider {
     };
 
     child.stdin.on("error", () => {}); // EPIPE if docker exits before reading the job
-    child.stdin.end(`${JSON.stringify(spec.job)}\n`);
+    child.stdin.write(`${JSON.stringify(spec.job)}\n`);
 
     // The agent can write to these pipes too, so no line may grow without bound in server memory.
     splitLines(
@@ -57,8 +57,8 @@ export class DockerSandboxProvider implements SandboxProvider {
       MAX_LINE_BYTES,
       (line) => {
         if (!line.trim()) return;
-        const event = parseRunnerLine(line);
-        if (event) listener.onEvent(event);
+        const parsed = parseRunnerLine(line);
+        if (parsed) listener.onEvent(parsed.event, parsed.turn);
         else listener.onLog(`unrecognized stdout: ${line}`);
       },
       () => listener.onLog(`dropped a stdout line over ${MAX_LINE_BYTES} bytes`),
@@ -75,6 +75,9 @@ export class DockerSandboxProvider implements SandboxProvider {
 
     return {
       name,
+      send: (message) => {
+        if (!settled && child.stdin.writable) child.stdin.write(`${JSON.stringify(message)}\n`);
+      },
       kill: () => {
         if (settled) return;
         dockerKill(name);

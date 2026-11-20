@@ -12,12 +12,12 @@ describe("parseRunnerLine: files events", () => {
       { path: "logo.png", size: 2048, skipped: "binary" },
       { path: "node_modules", size: 0, skipped: "dir" },
     ];
-    expect(parseRunnerLine(filesLine(files))).toEqual({ kind: "files", truncated: false, files });
+    expect(parseRunnerLine(filesLine(files))).toEqual({ event: { kind: "files", truncated: false, files } });
   });
 
   it("drops fields it does not know", () => {
     const line = filesLine([{ path: "a.html", size: 1, content: "x", html: "<script>alert(1)</script>" }], { render: true });
-    expect(parseRunnerLine(line)).toEqual({ kind: "files", truncated: false, files: [{ path: "a.html", size: 1, content: "x" }] });
+    expect(parseRunnerLine(line)).toEqual({ event: { kind: "files", truncated: false, files: [{ path: "a.html", size: 1, content: "x" }] } });
   });
 
   it.each([
@@ -54,7 +54,7 @@ describe("parseRunnerLine: files events", () => {
     }));
     const line = filesLine(files, { truncated: true });
     expect(Buffer.byteLength(line)).toBeLessThanOrEqual(MAX_LINE_BYTES);
-    expect(parseRunnerLine(line)?.kind).toBe("files");
+    expect(parseRunnerLine(line)?.event.kind).toBe("files");
   });
 
   it("rejects duplicate paths", () => {
@@ -76,5 +76,16 @@ describe("parseRunnerLine: files events", () => {
   it("rejects a missing or non-boolean truncated flag", () => {
     expect(parseRunnerLine(JSON.stringify({ kind: "files", files: [] }))).toBeUndefined();
     expect(parseRunnerLine(JSON.stringify({ kind: "files", files: [], truncated: "no" }))).toBeUndefined();
+  });
+});
+
+describe("parseRunnerLine: turn ids", () => {
+  it("returns the turn id separately from the event", () => {
+    expect(parseRunnerLine(JSON.stringify({ kind: "message", text: "hi", turn: "t1" }))).toEqual({ event: { kind: "message", text: "hi" }, turn: "t1" });
+  });
+
+  it("leaves the turn unset on an untagged line or a non-string id", () => {
+    expect(parseRunnerLine(JSON.stringify({ kind: "status", status: "done" }))).toEqual({ event: { kind: "status", status: "done" } });
+    expect(parseRunnerLine(JSON.stringify({ kind: "status", status: "done", turn: 1 }))).toEqual({ event: { kind: "status", status: "done" } });
   });
 });

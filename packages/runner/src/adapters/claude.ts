@@ -1,6 +1,6 @@
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { NormalizedEvent, ToolKind } from "@atd/shared";
-import { WORKSPACE, rel, type Adapter } from "../types.js";
+import { WORKSPACE, rel, type Adapter, type Emit } from "../types.js";
 
 type ToolCall = Extract<NormalizedEvent, { kind: "tool_call" }>;
 type Input = Record<string, unknown>;
@@ -44,7 +44,12 @@ function resultText(content: unknown): string {
     .join("\n");
 }
 
-export const runClaude: Adapter = async (prompt, emit) => {
+export const runClaude: Adapter = (emit) => {
+  let sessionId: string | undefined;
+  return (prompt) => runTurn(prompt, emit, sessionId, (id) => (sessionId = id));
+};
+
+async function runTurn(prompt: string, emit: Emit, resume: string | undefined, onSession: (id: string) => void): Promise<boolean> {
   // Remember each tool_use so its tool_result can be emitted as the same card.
   const started = new Map<string, ToolCall>();
   let ok = false;
@@ -52,6 +57,7 @@ export const runClaude: Adapter = async (prompt, emit) => {
   let reported = false;
 
   function handle(msg: SDKMessage): void {
+    if ("session_id" in msg && msg.session_id) onSession(msg.session_id);
     switch (msg.type) {
       case "assistant": {
         // API errors come back as a synthetic assistant message, then again in the result.
@@ -116,6 +122,7 @@ export const runClaude: Adapter = async (prompt, emit) => {
       model: "claude-haiku-5-5",
       effort: "low",
       cwd: WORKSPACE,
+      resume,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       allowedTools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "WebFetch", "TodoWrite"],
@@ -132,4 +139,4 @@ export const runClaude: Adapter = async (prompt, emit) => {
     console.error("[claude] SDK error after result:", err);
   }
   return ok;
-};
+}

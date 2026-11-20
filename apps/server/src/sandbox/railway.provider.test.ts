@@ -7,7 +7,7 @@ import type { SandboxSpec } from "./sandbox.types.js";
 const spec: SandboxSpec = {
   name: "cmp-abc-claude",
   agent: "claude",
-  job: { agent: "claude", prompt: "hi" },
+  job: { agent: "claude", prompt: "hi", turn: "t1" },
   env: { ANTHROPIC_API_KEY: "sk-test" },
   limits: { memoryMb: 2048, cpus: 2 },
 };
@@ -16,6 +16,7 @@ function fakeSandbox() {
   let finish!: (code: number | null) => void;
   let fail!: (err: Error) => void;
   const execs: { command: string; options: ExecOptions }[] = [];
+  const stdin: string[] = [];
   const result = new Promise<{ exitCode: number | null }>((resolve, reject) => {
     finish = (exitCode) => resolve({ exitCode });
     fail = reject;
@@ -25,13 +26,13 @@ function fakeSandbox() {
     id: "sbx-1",
     exec: (command, options) => {
       execs.push({ command, options });
-      return result;
+      return Object.assign(result.then((r) => r), { stdin: { write: async (line: string | Uint8Array) => void stdin.push(String(line)) } });
     },
     files: { write: vi.fn(async () => {}) },
     heartbeat: async () => sandbox,
     destroy: vi.fn(async () => fail(new Error("sandbox destroyed"))),
   };
-  return { sandbox, execs, finish, fail, out: (s: string) => execs[0]!.options.onStdout!(s) };
+  return { sandbox, execs, stdin, finish, fail, out: (s: string) => execs[0]!.options.onStdout!(s) };
 }
 
 function listener() {
@@ -44,21 +45,20 @@ function listener() {
 const until = (check: () => boolean) => vi.waitFor(() => expect(check()).toBe(true));
 
 describe("RailwaySandboxProvider", () => {
-  it("uploads the runner and the job, streams events and destroys the sandbox", async () => {
+  it("uploads the runner, sends the job on stdin, streams events and destroys the sandbox", async () => {
     const fake = fakeSandbox();
     const create = vi.fn(async () => fake.sandbox);
     const provider = new RailwaySandboxProvider({ createSandbox: create, bundle: [{ path: "/opt/atd/runner/dist/main.js", content: "x" }] });
     const l = listener();
-    provider.start(spec, l);
+    const handle = provider.start(spec, l);
 
     await until(() => fake.execs.length === 1);
     expect(create).toHaveBeenCalledWith("claude", expect.objectContaining({ resources: { cpu: 2, memoryGB: 2 } }));
     expect(fake.sandbox.files.write).toHaveBeenCalledWith("/opt/atd/runner/dist/main.js", "x");
-    const jobWrite = vi.mocked(fake.sandbox.files.write).mock.calls.find(([path]) => path === "/opt/atd/job.json");
-    expect(JSON.parse(String(jobWrite?.[1]))).toEqual(spec.job);
-    expect(fake.execs[0]!.command).toContain("< /opt/atd/job.json");
-    expect(fake.execs[0]!.options).toMatchObject({ cwd: "/workspace", env: { ANTHROPIC_API_KEY: "sk-test" } });
-    expect(fake.execs[0]!.options.stdin).toBeUndefined();
+    expect(fake.execs[0]!.options).toMatchObject({ cwd: "/workspace", env: { ANTHROPIC_API_KEY: "sk-test" }, stdin: true });
+    handle.send({ prompt: "add tests", turn: "t2" });
+    await until(() => fake.stdin.length === 2);
+    expect(fake.stdin.map((line) => JSON.parse(line))).toEqual([spec.job, { prompt: "add tests", turn: "t2" }]);
 
     fake.out('{"kind":"message","text":"hel');
     fake.out('lo"}\n{"kind":"status","status":"done"}');

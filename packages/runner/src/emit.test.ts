@@ -65,4 +65,25 @@ describe("createEmitter", () => {
     emit({ kind: "status", status: "failed" });
     expect(lines).toEqual([`{"kind":"error","message":"boom"}\n`, `{"kind":"status","status":"failed"}\n`]);
   });
+
+  it("shows a repeated error again once the turn has ended", () => {
+    const { lines, emit } = capture([]);
+    emit({ kind: "error", message: "rate limited" });
+    emit({ kind: "status", status: "failed" });
+    emit({ kind: "error", message: "rate limited" });
+    expect(lines.filter((l) => l.includes("rate limited"))).toHaveLength(2);
+  });
+
+  it("tags each line with the current turn id", () => {
+    const lines: string[] = [];
+    let turn: string | undefined;
+    const emit = createEmitter([], (line) => lines.push(line), () => turn);
+    emit({ kind: "status", status: "running" });
+    turn = "t1";
+    emit({ kind: "message", text: "hi" });
+    expect(lines.map((l) => JSON.parse(l))).toEqual([
+      { kind: "status", status: "running" },
+      { kind: "message", text: "hi", turn: "t1" },
+    ]);
+  });
 });

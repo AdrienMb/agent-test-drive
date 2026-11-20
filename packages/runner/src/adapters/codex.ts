@@ -1,6 +1,6 @@
-import { Codex, type ThreadEvent, type ThreadItem } from "@openai/codex-sdk";
+import { Codex, type Thread, type ThreadEvent, type ThreadItem } from "@openai/codex-sdk";
 import type { NormalizedEvent } from "@atd/shared";
-import { WORKSPACE, rel, type Adapter } from "../types.js";
+import { WORKSPACE, rel, type Adapter, type Emit } from "../types.js";
 
 type Phase = "started" | "updated" | "completed";
 
@@ -65,8 +65,7 @@ function mapItem(item: ThreadItem, phase: Phase): NormalizedEvent | null {
   }
 }
 
-export const runCodex: Adapter = async (prompt, emit) => {
-  const startedAt = Date.now();
+export const runCodex: Adapter = (emit) => {
   const codex = new Codex({ apiKey: process.env.OPENAI_API_KEY });
   const thread = codex.startThread({
     // Efficient tier for the MVP; paired with claude-haiku-5-5 on the Claude side.
@@ -79,7 +78,12 @@ export const runCodex: Adapter = async (prompt, emit) => {
     approvalPolicy: "never",
     webSearchMode: "live",
   });
+  // The thread object keeps the conversation, so each turn just runs on it again.
+  return (prompt) => runTurn(thread, prompt, emit);
+};
 
+async function runTurn(thread: Thread, prompt: string, emit: Emit): Promise<boolean> {
+  const startedAt = Date.now();
   let ok = false;
   // Set once the failure has been reported, so the SDK's follow-up exception isn't shown twice.
   let reported = false;
@@ -124,4 +128,4 @@ export const runCodex: Adapter = async (prompt, emit) => {
     console.error("[codex] SDK error after failure:", err);
   }
   return ok;
-};
+}

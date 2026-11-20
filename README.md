@@ -26,20 +26,40 @@ How a run goes:
    the active `SandboxProvider` (see [Sandbox providers](#sandbox-providers)). With Docker
    that is `docker run --rm -i --init --name cmp-<runId>-<agent> --memory 2g --cpus 2 -e <ONE_API_KEY> agent-runner-<agent>:latest`.
    Each agent has its own image, and each container only gets the key its agent needs.
-2. The server writes `{"agent":"claude"|"codex","prompt":"..."}` to the container's stdin.
+2. The server writes `{"agent":"claude"|"codex","prompt":"...","turn":"<id>"}` to the container's stdin,
+   and keeps stdin open for follow-ups (see [Follow-up prompts](#follow-up-prompts)).
 3. The runner (`packages/runner/src/main.ts`) dispatches to an adapter
    (`adapters/claude.ts` or `adapters/codex.ts`), which maps SDK events to
-   `NormalizedEvent` and prints one JSON object per line on stdout. Logs go to stderr,
-   which the server only writes to its own log.
+   `NormalizedEvent` and prints one JSON object per line on stdout, tagged with the
+   current `turn` id. The server drops lines whose `turn` isn't the current one, so output
+   from an earlier turn, or a line the agent printed itself, can't end or fill the current
+   turn. Logs go to stderr, which the server only writes to its own log.
 4. The server stamps each event with `runId`, `agent`, `seq` and `ts`, stores it in an
    in-memory replay buffer, and streams it over SSE. Late subscribers get the full
    history first.
-5. The browser merges `tool_call` events by `id`, so a call shows as one card that goes
-   from started to completed.
+5. The browser merges `tool_call` events by `id` within a turn, so a call shows as one card
+   that goes from started to completed.
 
-Each agent emits `status: running` first and exactly one final status (`done`, `failed`
-or `cancelled`). If a container exits without one, the server emits `failed`. Each
-container has a 10-minute timeout.
+Each turn of each agent has `status: running` first and exactly one final status (`done`,
+`failed` or `cancelled`). If a container exits mid-turn, the server emits `failed`. Each
+turn has a 10-minute timeout.
+
+### Follow-up prompts
+
+Once both agents have finished a turn, the run page offers a follow-up box (e.g. _"Add tests
+for this code"_ after _"Write a function…"_). `POST /api/runs/:id/prompts { prompt }` writes
+`{"prompt":"...","turn":"<id>"}` as one more stdin line to every sandbox still up; it answers 409 while a
+turn is running or once the session has ended. The runner (`main.ts`) handles one line per
+turn and keeps the agent session between them: Claude resumes its `session_id`, Codex runs
+the same thread again. `/workspace` carries over too, since it is the same container. If the
+first line can't start an agent session, the runner reports the failure and exits, which
+ends the session.
+
+The server marks each follow-up with a `prompt` event and the end of the session with a
+`closed` event per agent; both are server-only, so `parseRunnerLine` drops them if the
+agent prints them. A session ends, killing its sandboxes, on **End session** (or **Cancel**
+mid-turn), when a sandbox dies, or after 5 minutes without a follow-up (`IDLE_TIMEOUT_MS`
+in `runs.service.ts`). The comparison table sums time, tokens and cost over every turn.
 
 ## Setup
 
@@ -68,8 +88,9 @@ the runner only runs inside the images.
 Send _"Write a Python script that prints the first 20 Fibonacci numbers, then run it"_.
 Both columns stream live; shell commands and file edits get highlighted cards, and a
 comparison table (time, tool calls by kind, files edited, files in the workspace, tokens, cost) appears once both
-agents are finished. **Cancel** runs `docker kill` on both containers.
-`docker ps` should show nothing left after a run.
+agents are finished. **Cancel** runs `docker kill` on both containers. Between turns the containers stay up
+for follow-ups; **End session** (or 5 idle minutes) kills them, and `docker ps` should
+then show nothing left.
 
 ## Configuration
 
@@ -124,14 +145,14 @@ rebuild when an SDK version changes; the server builds both at boot to warm the 
 For each agent the provider then:
 
 1. creates the sandbox from the template (`2 vCPU / 2 GB`, idle timeout 5 minutes),
-2. uploads the compiled runner, `@atd/shared` (a few small JS files) and the job as
-   `/opt/atd/job.json`,
-3. runs `node /opt/atd/runner/dist/main.js < /opt/atd/job.json` as `agent` in `/workspace`
-   with an ephemeral exec: the API key goes in the exec's env (never the sandbox's), and
-   stdout goes through the same `splitLines` + `parseRunnerLine` as Docker,
-4. heartbeats every minute while it runs, then destroys the sandbox.
+2. uploads the compiled runner and `@atd/shared` (a few small JS files),
+3. runs `node /opt/atd/runner/dist/main.js` as `agent` in `/workspace` with an ephemeral
+   exec opened with `stdin: true`, then writes the job and later follow-ups to its stdin:
+   the API key goes in the exec's env (never the sandbox's), and stdout goes through the
+   same `splitLines` + `parseRunnerLine` as Docker,
+4. heartbeats every minute while the session lasts, then destroys the sandbox.
 
-Cancel and the 10-minute timeout destroy the sandbox. The idle timeout only matters if
+Ending the session and the 10-minute turn timeout destroy the sandbox. The idle timeout only matters if
 the server dies mid-run: the sandbox is gone at most 5 minutes later.
 
 ## Deploy on Railway
@@ -171,7 +192,7 @@ then `docker run -p 3000:3000 --env-file .env -e RAILWAY_TOKEN=... agent-test-dr
 
 ## Workspace files
 
-When the agent is done (or has failed), the runner scans `/workspace`
+At the end of each turn (done or failed), the runner scans `/workspace`
 (`packages/runner/src/files.ts`) and emits one `files` event before the final status. The
 filesystem is the source of truth: files created by shell commands count too, not only
 those from `file_edit` tool calls. Each agent column then shows a **Workspace files** panel.
@@ -189,7 +210,7 @@ write to the runner's stdout directly and bypass the runner:
   it streams and from its logs, which is the layer that can't be bypassed.
 - **Server.** `parseRunnerLine` checks every field of a `files` event (safe relative paths,
   no duplicates, byte limits, known skip reasons), rebuilds it without unknown fields, and
-  only the first `files` event per agent is kept.
+  only the first `files` event per agent and turn is kept.
 - **Browser.** File content and names are only ever rendered as React text, never as
   HTML, SVG or Markdown, and nothing is previewed in an iframe. Downloads are
   `application/octet-stream` blobs with a sanitized basename and are never opened in a tab.
@@ -215,8 +236,10 @@ anything else → `other`.
 - **In-memory only.** Runs live in the server process (finished runs are dropped after
   30 minutes). Restarting the server loses them and kills running containers or sandboxes.
   On Railway, every redeploy does that.
-- **Single turn.** No follow-ups, no file upload, no diffs; `/workspace`
-  starts empty and goes away with the container.
+- **Sequential follow-ups.** A follow-up waits for both agents to finish the current turn,
+  and goes to both. No file upload, no diffs; `/workspace` starts empty and goes away with
+  the container. Sessions kept open for follow-ups hold their sandbox (on Railway Trial and
+  Free, they count toward the 10 at a time).
 - **Costs are not equal.** The Claude SDK reports a USD cost; the Codex SDK only reports
   tokens, so its cost shows as "—". Claude input tokens include cache reads and writes,
   so both columns count all input.

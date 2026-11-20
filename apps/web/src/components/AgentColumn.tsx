@@ -48,8 +48,22 @@ function Reasoning({ text }: { text: string }) {
   );
 }
 
+export function PromptBubble({ text }: { text: string }) {
+  return (
+    <Group justify="flex-end">
+      <Paper radius="lg" px="md" py="xs" bg="var(--mantine-color-default-hover)" maw="80%">
+        <Text size="sm" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+          {text}
+        </Text>
+      </Paper>
+    </Group>
+  );
+}
+
 function Item({ item }: { item: TimelineItem }) {
   switch (item.type) {
+    case "prompt":
+      return <PromptBubble text={item.text} />;
     case "message":
       return (
         <Text size="sm" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
@@ -99,6 +113,11 @@ export function AgentColumn({ name, agent }: { name: string; agent: AgentState }
         {isFinished(agent.status) && agent.items.length === 0 && (
           <Text size="sm" c="dimmed">
             No output.
+          </Text>
+        )}
+        {agent.closed && (
+          <Text size="xs" c="dimmed" ta="center">
+            Session ended: {agent.closed}
           </Text>
         )}
       </Stack>

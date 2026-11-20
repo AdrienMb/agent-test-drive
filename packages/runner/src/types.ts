@@ -1,9 +1,12 @@
 import type { NormalizedEvent } from "@atd/shared";
 
-type Emit = (event: NormalizedEvent) => void;
+export type Emit = (event: NormalizedEvent) => void;
 
-/** Runs one prompt to completion. Resolves to true on success, false on failure. */
-export type Adapter = (prompt: string, emit: Emit) => Promise<boolean>;
+/** Runs one prompt to completion in the agent's session. Resolves to true on success, false on failure. */
+export type Turn = (prompt: string) => Promise<boolean>;
+
+/** Starts an agent session; every prompt given to the returned turn continues the same conversation. */
+export type Adapter = (emit: Emit) => Turn;
 
 export const WORKSPACE = "/workspace";
 

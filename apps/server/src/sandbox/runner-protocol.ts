@@ -90,13 +90,26 @@ function toNormalizedEvent(value: unknown): NormalizedEvent | undefined {
   }
 }
 
+/** A runner stdout line: the event plus the turn id the runner tagged it with. */
+export interface RunnerLine {
+  event: NormalizedEvent;
+  turn?: string;
+}
+
 /** Expects lines already bounded by MAX_LINE_BYTES (see splitLines). */
-export function parseRunnerLine(line: string): NormalizedEvent | undefined {
+export function parseRunnerLine(line: string): RunnerLine | undefined {
   const trimmed = line.trim();
   if (!trimmed) return undefined;
+  let value: unknown;
   try {
-    return toNormalizedEvent(JSON.parse(trimmed));
+    value = JSON.parse(trimmed);
   } catch {
     return undefined;
   }
+  if (typeof value !== "object" || value === null) return undefined;
+  // Removed so it isn't passed on as part of the event.
+  const { turn, ...rest } = value as Record<string, unknown>;
+  const event = toNormalizedEvent(rest);
+  if (!event) return undefined;
+  return typeof turn === "string" ? { event, turn } : { event };
 }

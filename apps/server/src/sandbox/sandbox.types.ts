@@ -1,4 +1,4 @@
-import type { AgentId, NormalizedEvent, RunnerJob } from "@atd/shared";
+import type { AgentId, NormalizedEvent, RunnerFollowUp, RunnerJob } from "@atd/shared";
 
 export interface SandboxSpec {
   /** Unique, readable name, e.g. cmp-<runId>-<agent>. */
@@ -11,7 +11,8 @@ export interface SandboxSpec {
 }
 
 export interface SandboxListener {
-  onEvent(event: NormalizedEvent): void;
+  /** `turn` is the id the runner tagged the line with, if any. */
+  onEvent(event: NormalizedEvent, turn?: string): void;
   /** Runner stderr or provider diagnostics. Never shown to the user directly. */
   onLog(line: string): void;
   /** Called exactly once, after the last onEvent. `error` is set when the sandbox could not start. */
@@ -20,6 +21,8 @@ export interface SandboxListener {
 
 export interface SandboxHandle {
   readonly name: string;
+  /** Writes a follow-up prompt to the runner's stdin, which stays open until kill(). */
+  send(message: RunnerFollowUp): void;
   /** Best effort and idempotent; onExit still fires afterwards. */
   kill(): void;
 }

@@ -13,8 +13,12 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}… [${text.length - max} more chars]` : text;
 }
 
-/** Writes one JSON line per event, with secrets redacted. The server redacts again. */
-export function createEmitter(secrets: readonly string[], write: (line: string) => void): (event: NormalizedEvent) => void {
+/** Writes one JSON line per event, with secrets redacted and tagged with the current turn id. The server redacts again. */
+export function createEmitter(
+  secrets: readonly string[],
+  write: (line: string) => void,
+  currentTurn: () => string | undefined = () => undefined,
+): (event: NormalizedEvent) => void {
   let lastError: string | undefined;
   return (event) => {
     // Redact before truncating: a key cut in half at the limit would no longer match.
@@ -27,6 +31,9 @@ export function createEmitter(secrets: readonly string[], write: (line: string) 
       if (safe.message === lastError) return;
       lastError = safe.message;
     }
-    write(`${JSON.stringify(safe)}\n`);
+    // Every turn ends with a final status, so the next turn's first error is always shown.
+    if (safe.kind === "status" && safe.status !== "running") lastError = undefined;
+    const turn = currentTurn();
+    write(`${JSON.stringify(turn === undefined ? safe : { ...safe, turn })}\n`);
   };
 }

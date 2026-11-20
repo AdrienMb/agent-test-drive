@@ -9,7 +9,7 @@ function stats(agent: AgentState) {
   const byKind = new Map<ToolKind, number>();
   for (const c of calls) byKind.set(c.tool, (byKind.get(c.tool) ?? 0) + 1);
   const files = new Set(calls.flatMap((c) => (c.tool === "file_edit" ? (c.files ?? []) : [])));
-  const wall = agent.startedAt !== undefined && agent.endedAt !== undefined ? agent.endedAt - agent.startedAt : undefined;
+  const wall = agent.startedAt !== undefined ? agent.wallMs : undefined;
   const created = agent.files && countWorkspaceFiles(agent.files.files);
   return { calls: calls.length, byKind, files: [...files], created, wall, usage: agent.usage };
 }
