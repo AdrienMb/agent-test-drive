@@ -15,11 +15,9 @@ import {
   forgetPassphrase,
   savePassphrase,
 } from "../passphrase";
+import { errorMessage } from "../format";
 
 type Status = "checking" | "locked" | "open";
-
-const errorMessage = (err: unknown) =>
-  err instanceof Error ? err.message : String(err);
 
 /** Shows the passphrase form until the server accepts the passphrase; `lock` brings the form back. */
 export function PassphraseGate({

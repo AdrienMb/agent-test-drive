@@ -1,5 +1,7 @@
 import "reflect-metadata";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
@@ -14,7 +16,17 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix("api");
   // In production one service serves both the API and the built web app; in dev Vite serves the web app.
   const webDist = fileURLToPath(new URL("../../web/dist", import.meta.url));
-  if (process.env.NODE_ENV === "production" && existsSync(webDist)) app.useStaticAssets(webDist);
+  if (process.env.NODE_ENV === "production" && existsSync(webDist)) {
+    app.useStaticAssets(webDist);
+    // Client-side routes like /runs/:id must load the app on a reload too.
+    const indexHtml = readFileSync(join(webDist, "index.html"));
+    app.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
+      const path = (req.url?.split("?")[0] ?? "/").toLowerCase();
+      if (req.method !== "GET" || path === "/api" || path.startsWith("/api/") || extname(path)) return next();
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end(indexHtml);
+    });
+  }
   // Lets RunsService kill running containers on Ctrl+C / restart.
   app.enableShutdownHooks();
   const port = Number(process.env.PORT ?? 3000);

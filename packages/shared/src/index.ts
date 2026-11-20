@@ -6,9 +6,10 @@ export const PASSPHRASE_COOKIE = "atd_passphrase";
 
 export type AgentId = "claude" | "codex";
 
-export const AGENTS: readonly { id: AgentId; label: string }[] = [
-  { id: "claude", label: "Claude Code" },
-  { id: "codex", label: "Codex" },
+/** `model` and `effort` are display labels; the runner adapters hold the real settings. */
+export const AGENTS: readonly { id: AgentId; label: string; model: string; effort: string }[] = [
+  { id: "claude", label: "Claude Code", model: "Haiku 5.5", effort: "Low" },
+  { id: "codex", label: "Codex", model: "GPT-6 Luna", effort: "Low" },
 ];
 
 export type ToolKind =

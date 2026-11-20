@@ -13,3 +13,5 @@ export function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+export const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));

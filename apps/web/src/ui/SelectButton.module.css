@@ -1,0 +1,7 @@
+/* A disabled choice is still the one in use, so it stays fully readable. */
+.input[data-disabled] {
+  opacity: 1;
+  color: var(--mantine-color-text);
+  background-color: light-dark(#fafafa, var(--mantine-color-dark-6));
+  border-color: light-dark(#d5d5d5, var(--mantine-color-dark-4));
+}
